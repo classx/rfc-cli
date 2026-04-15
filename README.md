@@ -217,7 +217,7 @@ Checks performed:
 - Valid YAML frontmatter
 - Non-empty required fields (`title`, `status`)
 - Valid status value
-- Required sections present (`## Проблема`, `## Задача`, `## Дизайн`, `## Альтернативы`)
+- Required sections present (`## Problem`, `## Goal`, `## Design`, `## Alternatives`)
 - Number in filename matches the title
 - Dependencies exist
 - Files listed in `links` exist
@@ -331,12 +331,12 @@ links:
   - src/rfclib/rfc.rs
 ---
 
-## Проблема
-## Задача
-## Дизайн
-## Альтернативы
-## Голосование
-## Миграция
+## Problem
+## Goal
+## Design
+## Alternatives
+## Voting
+## Migration
 ```
 
 | Field | Type | Description |

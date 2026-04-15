@@ -55,7 +55,7 @@ fn run_rfc_cli_without_editor(project_dir: &Path, args: &[&str]) -> Output {
 // Helper: write an RFC file with given status AND update the index entry
 fn write_rfc_with_status(dir: &Path, number: &str, title: &str, status: &str) {
     let content = format!(
-        "---\ntitle: \"RFC-{}: {}\"\nstatus: {}\ndependencies: []\nsuperseded_by: null\nlinks: []\n---\n\n## Проблема\n",
+        "---\ntitle: \"RFC-{}: {}\"\nstatus: {}\ndependencies: []\nsuperseded_by: null\nlinks: []\n---\n\n## Problem\n",
         number, title, status
     );
     let rfc_path = dir.join(format!("docs/rfcs/{}.md", number));
@@ -128,7 +128,7 @@ fn write_rfc_with_deps_and_links(
         format!("[{}]", links.join(", "))
     };
     let content = format!(
-        "---\ntitle: \"RFC-{}: {}\"\nstatus: {}\ndependencies: {}\nsuperseded_by: null\nlinks: {}\n---\n\n## Проблема\n",
+        "---\ntitle: \"RFC-{}: {}\"\nstatus: {}\ndependencies: {}\nsuperseded_by: null\nlinks: {}\n---\n\n## Problem\n",
         number, title, status, deps_yaml, links_yaml
     );
     let rfc_path = dir.join(format!("docs/rfcs/{}.md", number));
@@ -283,12 +283,12 @@ fn test_new_creates_first_rfc() {
     assert!(content.contains("dependencies: []"));
     assert!(content.contains("superseded_by: null"));
     assert!(content.contains("links: []"));
-    assert!(content.contains("## Проблема"));
-    assert!(content.contains("## Задача"));
-    assert!(content.contains("## Дизайн"));
-    assert!(content.contains("## Альтернативы"));
-    assert!(content.contains("## Голосование"));
-    assert!(content.contains("## Миграция"));
+    assert!(content.contains("## Problem"));
+    assert!(content.contains("## Goal"));
+    assert!(content.contains("## Design"));
+    assert!(content.contains("## Alternatives"));
+    assert!(content.contains("## Voting"));
+    assert!(content.contains("## Migration"));
 
     cleanup(&dir);
 }
@@ -481,10 +481,10 @@ fn test_new_template_has_all_required_sections() {
     let content = fs::read_to_string(dir.join("docs/rfcs/0001.md")).unwrap();
 
     // Required sections per RFC-0001
-    let required_sections = vec!["## Проблема", "## Задача", "## Дизайн", "## Альтернативы"];
+    let required_sections = vec!["## Problem", "## Goal", "## Design", "## Alternatives"];
 
     // Optional sections per RFC-0001
-    let optional_sections = vec!["## Голосование", "## Миграция"];
+    let optional_sections = vec!["## Voting", "## Migration"];
 
     for section in &required_sections {
         assert!(
@@ -715,10 +715,7 @@ fn test_view_shows_content() {
         stdout.contains("status: draft"),
         "should contain status field"
     );
-    assert!(
-        stdout.contains("## Проблема"),
-        "should contain RFC sections"
-    );
+    assert!(stdout.contains("## Problem"), "should contain RFC sections");
 
     cleanup(&dir);
 }

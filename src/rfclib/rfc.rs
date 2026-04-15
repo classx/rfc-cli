@@ -49,17 +49,17 @@ superseded_by: null
 links: []
 ---
 
-## Проблема
+## Problem
 
-## Задача
+## Goal
 
-## Дизайн
+## Design
 
-## Альтернативы
+## Alternatives
 
-## Голосование
+## Voting
 
-## Миграция
+## Migration
 "#,
         number, title
     )
