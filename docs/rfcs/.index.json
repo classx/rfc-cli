@@ -7,8 +7,8 @@
       "dependencies": [],
       "superseded_by": null,
       "links": [],
-      "mtime": "1776236673",
-      "content_hash": "ba29f72afba4895606b8a5c35b1e5916f57d8ab81e2f2f7b13007348c1b23c6f"
+      "mtime": "1776237413",
+      "content_hash": "30eebe7082e44818bfa175f3a4ca2e2ff42b06854bf0e593e2e457fc62586b8a"
     },
     {
       "number": "0002",
@@ -31,8 +31,8 @@
         "tests/integration_test.rs",
         "Makefile"
       ],
-      "mtime": "1776062784",
-      "content_hash": "6aa1d7199c07c9573510eff35f6e20ee2ebcffed7325ffd768bd4e614b17be77"
+      "mtime": "1776237571",
+      "content_hash": "5bf21ef585c8bdb3527d4631ec4d2a939df13b5687676f65df5bea7c0f6c69cb"
     },
     {
       "number": "0003",
@@ -56,8 +56,8 @@
         "Cargo.toml",
         "tests/integration_test.rs"
       ],
-      "mtime": "1776233576",
-      "content_hash": "be3048bf31b38a76c6c76b81ce183ae3be6934f79c91ba2974432814d5f8f9be"
+      "mtime": "1776237457",
+      "content_hash": "043bafbe3a26c13acd0176d2e3c53491c0716930cc564f503ac1224d9f72ed9e"
     },
     {
       "number": "0004",
@@ -79,8 +79,8 @@
         "src/rfclib/index.rs",
         "tests/integration_test.rs"
       ],
-      "mtime": "1776234759",
-      "content_hash": "e81055a9299bef304d13bdc9ad220139f500ec05a8b9e6876fece6b496d4ae15"
+      "mtime": "1776237440",
+      "content_hash": "18f707229fe93107f0d6a24b92a24fe1071cb7934b7ab4d37453a6c0e5754d30"
     },
     {
       "number": "0005",
@@ -101,8 +101,8 @@
         "src/rfclib/rfc.rs",
         "tests/integration_test.rs"
       ],
-      "mtime": "1776236089",
-      "content_hash": "565805888f5df476c7e75727fc2998bf2435c76dd8f90df3758a70a7fd17cdd4"
+      "mtime": "1776237444",
+      "content_hash": "5c7bc496cbc74b62cd8289c6759685d67c72d1cc160bb58e5a4bd29d89838957"
     },
     {
       "number": "0006",
@@ -120,8 +120,8 @@
         "src/commands/mod.rs",
         "tests/integration_test.rs"
       ],
-      "mtime": "1776236662",
-      "content_hash": "5ed0bfd0061d5d89dab67a91fb7b823003f62657a73aeee328883375346d1240"
+      "mtime": "1776237478",
+      "content_hash": "f0cf2461fdd5ba254ad6662bdf1a8cf3122309cb2eac20b2cf87c242e4994870"
     }
   ]
 }

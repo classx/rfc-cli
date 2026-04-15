@@ -81,7 +81,7 @@ pub fn execute(project_root: &Path, number: Option<&str>) -> Result<(), String> 
         }
 
         // (d) Check required sections
-        let required_sections = ["## Проблема", "## Задача", "## Дизайн", "## Альтернативы"];
+        let required_sections = ["## Problem", "## Goal", "## Design", "## Alternatives"];
         for section in &required_sections {
             if !content.contains(section) {
                 errors.push(format!(
