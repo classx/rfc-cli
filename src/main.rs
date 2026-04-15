@@ -41,6 +41,7 @@ fn main() {
         Commands::Deps { number, reverse } => {
             commands::deps::execute(&project_root, &number, reverse)
         }
+        Commands::Doctor { stale_days } => commands::doctor::execute(&project_root, stale_days),
     };
 
     if let Err(e) = result {

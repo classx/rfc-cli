@@ -3,12 +3,12 @@
     {
       "number": "0001",
       "title": "RFC-0001: структура RFC cli",
-      "status": "accepted",
+      "status": "implemented",
       "dependencies": [],
       "superseded_by": null,
       "links": [],
-      "mtime": "1776061182",
-      "content_hash": "af3174903b64eadf66884873152b78f96bed18053e9c6e0c140ce0ba4a95dc83"
+      "mtime": "1776236673",
+      "content_hash": "ba29f72afba4895606b8a5c35b1e5916f57d8ab81e2f2f7b13007348c1b23c6f"
     },
     {
       "number": "0002",
@@ -101,8 +101,27 @@
         "src/rfclib/rfc.rs",
         "tests/integration_test.rs"
       ],
-      "mtime": "1776235911",
+      "mtime": "1776236089",
       "content_hash": "565805888f5df476c7e75727fc2998bf2435c76dd8f90df3758a70a7fd17cdd4"
+    },
+    {
+      "number": "0006",
+      "title": "RFC-0006: реализация команды doctor",
+      "status": "implemented",
+      "dependencies": [
+        "RFC-0001",
+        "RFC-0005"
+      ],
+      "superseded_by": null,
+      "links": [
+        "src/commands/doctor.rs",
+        "src/cli.rs",
+        "src/main.rs",
+        "src/commands/mod.rs",
+        "tests/integration_test.rs"
+      ],
+      "mtime": "1776236662",
+      "content_hash": "5ed0bfd0061d5d89dab67a91fb7b823003f62657a73aeee328883375346d1240"
     }
   ]
 }
