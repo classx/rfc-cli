@@ -79,8 +79,30 @@
         "src/rfclib/index.rs",
         "tests/integration_test.rs"
       ],
-      "mtime": "1776234440",
+      "mtime": "1776234759",
       "content_hash": "e81055a9299bef304d13bdc9ad220139f500ec05a8b9e6876fece6b496d4ae15"
+    },
+    {
+      "number": "0005",
+      "title": "RFC-0005: реализация команд link, unlink и deps",
+      "status": "implemented",
+      "dependencies": [
+        "RFC-0001",
+        "RFC-0003"
+      ],
+      "superseded_by": null,
+      "links": [
+        "src/cli.rs",
+        "src/main.rs",
+        "src/commands/mod.rs",
+        "src/commands/link.rs",
+        "src/commands/unlink.rs",
+        "src/commands/deps.rs",
+        "src/rfclib/rfc.rs",
+        "tests/integration_test.rs"
+      ],
+      "mtime": "1776235911",
+      "content_hash": "565805888f5df476c7e75727fc2998bf2435c76dd8f90df3758a70a7fd17cdd4"
     }
   ]
 }

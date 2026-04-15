@@ -1,9 +1,12 @@
 pub mod check;
+pub mod deps;
 pub mod edit;
 pub mod init;
+pub mod link;
 pub mod list;
 pub mod new;
 pub mod reindex;
 pub mod set;
 pub mod status;
+pub mod unlink;
 pub mod view;

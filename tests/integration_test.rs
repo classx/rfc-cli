@@ -108,6 +108,74 @@ fn create_fake_editor_script(dir: &Path, name: &str, body: &str) -> String {
     script_path.to_string_lossy().to_string()
 }
 
+// Helper: write an RFC file with custom dependencies and links, AND update the index entry
+fn write_rfc_with_deps_and_links(
+    dir: &Path,
+    number: &str,
+    title: &str,
+    status: &str,
+    deps: &[&str],
+    links: &[&str],
+) {
+    let deps_yaml = if deps.is_empty() {
+        "[]".to_string()
+    } else {
+        format!("[{}]", deps.join(", "))
+    };
+    let links_yaml = if links.is_empty() {
+        "[]".to_string()
+    } else {
+        format!("[{}]", links.join(", "))
+    };
+    let content = format!(
+        "---\ntitle: \"RFC-{}: {}\"\nstatus: {}\ndependencies: {}\nsuperseded_by: null\nlinks: {}\n---\n\n## Проблема\n",
+        number, title, status, deps_yaml, links_yaml
+    );
+    let rfc_path = dir.join(format!("docs/rfcs/{}.md", number));
+    fs::write(&rfc_path, &content).unwrap();
+
+    // Update index
+    let index_path = dir.join("docs/rfcs/.index.json");
+    let index_content = fs::read_to_string(&index_path).unwrap();
+    let mut parsed: serde_json::Value = serde_json::from_str(&index_content).unwrap();
+
+    let full_title = format!("RFC-{}: {}", number, title);
+    let mtime = fs::metadata(&rfc_path)
+        .and_then(|m| m.modified())
+        .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs().to_string())
+        .unwrap_or_default();
+
+    let deps_json: Vec<serde_json::Value> = deps.iter().map(|d| serde_json::json!(d)).collect();
+    let links_json: Vec<serde_json::Value> = links.iter().map(|l| serde_json::json!(l)).collect();
+
+    let rfcs = parsed["rfcs"].as_array_mut().unwrap();
+    let existing = rfcs
+        .iter_mut()
+        .find(|e| e["number"].as_str() == Some(number));
+    if let Some(entry) = existing {
+        entry["status"] = serde_json::json!(status);
+        entry["title"] = serde_json::json!(full_title);
+        entry["mtime"] = serde_json::json!(mtime);
+        entry["dependencies"] = serde_json::json!(deps_json);
+        entry["links"] = serde_json::json!(links_json);
+    } else {
+        rfcs.push(serde_json::json!({
+            "number": number,
+            "title": full_title,
+            "status": status,
+            "dependencies": deps_json,
+            "superseded_by": null,
+            "links": links_json,
+            "mtime": mtime,
+            "content_hash": null
+        }));
+    }
+
+    fs::write(&index_path, serde_json::to_string_pretty(&parsed).unwrap()).unwrap();
+}
+
 // ============================================================
 // Tests for `init` command
 // ============================================================
@@ -1581,6 +1649,450 @@ fn test_help_shows_new_commands() {
     assert!(stdout.contains("set"), "help should mention set");
     assert!(stdout.contains("check"), "help should mention check");
     assert!(stdout.contains("reindex"), "help should mention reindex");
+    assert!(stdout.contains("link"), "help should mention link");
+    assert!(stdout.contains("unlink"), "help should mention unlink");
+    assert!(stdout.contains("deps"), "help should mention deps");
+
+    cleanup(&dir);
+}
+
+// ==================== link ====================
+
+#[test]
+fn test_link_basic() {
+    let dir = create_temp_dir("link_basic");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "test link"]);
+
+    // Create a dummy file to link to
+    let src_dir = dir.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
+
+    let output = run_rfc_cli(&dir, &["link", "1", "src/main.rs"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(stdout.contains("linked src/main.rs"));
+
+    // Verify frontmatter
+    let content = fs::read_to_string(dir.join("docs/rfcs/0001.md")).unwrap();
+    assert!(
+        content.contains("src/main.rs"),
+        "frontmatter should contain the link"
+    );
+
+    // Verify index
+    let index = fs::read_to_string(dir.join("docs/rfcs/.index.json")).unwrap();
+    assert!(
+        index.contains("src/main.rs"),
+        "index should contain the link"
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_link_duplicate() {
+    let dir = create_temp_dir("link_dup");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "test dup"]);
+
+    let src_dir = dir.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
+
+    run_rfc_cli(&dir, &["link", "1", "src/main.rs"]);
+    let output = run_rfc_cli(&dir, &["link", "1", "src/main.rs"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(stdout.contains("link already exists"));
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_link_nonexistent_file() {
+    let dir = create_temp_dir("link_nofile");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "test nofile"]);
+
+    let output = run_rfc_cli(&dir, &["link", "1", "src/nonexistent.rs"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("File not found"));
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_link_nonexistent_rfc() {
+    let dir = create_temp_dir("link_norfc");
+    run_rfc_cli(&dir, &["init"]);
+
+    let output = run_rfc_cli(&dir, &["link", "99", "src/main.rs"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("not found"));
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_link_normalizes_path() {
+    let dir = create_temp_dir("link_normalize");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "test normalize"]);
+
+    let src_dir = dir.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
+
+    let output = run_rfc_cli(&dir, &["link", "1", "./src/main.rs"]);
+    assert!(output.status.success());
+
+    let content = fs::read_to_string(dir.join("docs/rfcs/0001.md")).unwrap();
+    assert!(content.contains("src/main.rs"), "path should be normalized");
+    assert!(
+        !content.contains("./src/main.rs"),
+        "leading ./ should be stripped"
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_link_accepted_blocked() {
+    let dir = create_temp_dir("link_acc_block");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "test accepted"]);
+
+    let src_dir = dir.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
+
+    // Promote to accepted
+    run_rfc_cli(&dir, &["set", "1", "review"]);
+    run_rfc_cli(&dir, &["set", "1", "accepted"]);
+
+    let output = run_rfc_cli(&dir, &["link", "1", "src/main.rs"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("accepted"));
+    assert!(stderr.contains("--force"));
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_link_accepted_force() {
+    let dir = create_temp_dir("link_acc_force");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "test force"]);
+
+    let src_dir = dir.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
+
+    run_rfc_cli(&dir, &["set", "1", "review"]);
+    run_rfc_cli(&dir, &["set", "1", "accepted"]);
+
+    let output = run_rfc_cli(&dir, &["link", "1", "src/main.rs", "--force"]);
+    assert!(output.status.success());
+
+    // Verify content_hash was updated in index
+    let index = fs::read_to_string(dir.join("docs/rfcs/.index.json")).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&index).unwrap();
+    let entry = parsed["rfcs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["number"].as_str() == Some("0001"))
+        .unwrap();
+    assert!(
+        entry["content_hash"].as_str().is_some(),
+        "content_hash should be set after --force"
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_link_multiple() {
+    let dir = create_temp_dir("link_multi");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "test multi"]);
+
+    let src_dir = dir.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
+    fs::write(src_dir.join("lib.rs"), "// lib").unwrap();
+    fs::write(src_dir.join("cli.rs"), "// cli").unwrap();
+
+    run_rfc_cli(&dir, &["link", "1", "src/main.rs"]);
+    run_rfc_cli(&dir, &["link", "1", "src/lib.rs"]);
+    run_rfc_cli(&dir, &["link", "1", "src/cli.rs"]);
+
+    let content = fs::read_to_string(dir.join("docs/rfcs/0001.md")).unwrap();
+    assert!(content.contains("src/main.rs"));
+    assert!(content.contains("src/lib.rs"));
+    assert!(content.contains("src/cli.rs"));
+
+    let index = fs::read_to_string(dir.join("docs/rfcs/.index.json")).unwrap();
+    assert!(index.contains("src/main.rs"));
+    assert!(index.contains("src/lib.rs"));
+    assert!(index.contains("src/cli.rs"));
+
+    cleanup(&dir);
+}
+
+// ==================== unlink ====================
+
+#[test]
+fn test_unlink_basic() {
+    let dir = create_temp_dir("unlink_basic");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "test unlink"]);
+
+    let src_dir = dir.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
+
+    run_rfc_cli(&dir, &["link", "1", "src/main.rs"]);
+
+    let output = run_rfc_cli(&dir, &["unlink", "1", "src/main.rs"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(stdout.contains("unlinked src/main.rs"));
+
+    let content = fs::read_to_string(dir.join("docs/rfcs/0001.md")).unwrap();
+    assert!(
+        !content.contains("  - src/main.rs"),
+        "link should be removed from frontmatter"
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_unlink_not_found() {
+    let dir = create_temp_dir("unlink_notfound");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "test unlink nf"]);
+
+    let output = run_rfc_cli(&dir, &["unlink", "1", "src/nonexistent.rs"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("link not found"));
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_unlink_nonexistent_rfc() {
+    let dir = create_temp_dir("unlink_norfc");
+    run_rfc_cli(&dir, &["init"]);
+
+    let output = run_rfc_cli(&dir, &["unlink", "99", "src/main.rs"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("not found"));
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_unlink_accepted_blocked() {
+    let dir = create_temp_dir("unlink_acc_block");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "test unlink acc"]);
+
+    let src_dir = dir.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
+
+    run_rfc_cli(&dir, &["link", "1", "src/main.rs"]);
+    run_rfc_cli(&dir, &["set", "1", "review"]);
+    run_rfc_cli(&dir, &["set", "1", "accepted"]);
+
+    let output = run_rfc_cli(&dir, &["unlink", "1", "src/main.rs"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("accepted"));
+    assert!(stderr.contains("--force"));
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_unlink_accepted_force() {
+    let dir = create_temp_dir("unlink_acc_force");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "test unlink force"]);
+
+    let src_dir = dir.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
+
+    run_rfc_cli(&dir, &["link", "1", "src/main.rs"]);
+    run_rfc_cli(&dir, &["set", "1", "review"]);
+    run_rfc_cli(&dir, &["set", "1", "accepted"]);
+
+    let output = run_rfc_cli(&dir, &["unlink", "1", "src/main.rs", "--force"]);
+    assert!(output.status.success());
+
+    let content = fs::read_to_string(dir.join("docs/rfcs/0001.md")).unwrap();
+    assert!(
+        content.contains("links: []"),
+        "links should be empty after unlink"
+    );
+
+    // Verify content_hash was updated
+    let index = fs::read_to_string(dir.join("docs/rfcs/.index.json")).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&index).unwrap();
+    let entry = parsed["rfcs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["number"].as_str() == Some("0001"))
+        .unwrap();
+    assert!(
+        entry["content_hash"].as_str().is_some(),
+        "content_hash should be updated after --force"
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_unlink_last_link() {
+    let dir = create_temp_dir("unlink_last");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "test last link"]);
+
+    let src_dir = dir.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
+
+    run_rfc_cli(&dir, &["link", "1", "src/main.rs"]);
+    run_rfc_cli(&dir, &["unlink", "1", "src/main.rs"]);
+
+    let content = fs::read_to_string(dir.join("docs/rfcs/0001.md")).unwrap();
+    assert!(content.contains("links: []"), "links should be empty list");
+
+    cleanup(&dir);
+}
+
+// ==================== deps ====================
+
+#[test]
+fn test_deps_basic() {
+    let dir = create_temp_dir("deps_basic");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "base"]);
+    run_rfc_cli(&dir, &["new", "depends on base"]);
+
+    // Write RFC-0002 with dependency on RFC-0001
+    write_rfc_with_deps_and_links(&dir, "0002", "depends on base", "draft", &["RFC-0001"], &[]);
+
+    let output = run_rfc_cli(&dir, &["deps", "2"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(stdout.contains("RFC-0002 depends on:"));
+    assert!(stdout.contains("RFC-0001"));
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_deps_no_dependencies() {
+    let dir = create_temp_dir("deps_none");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "standalone"]);
+
+    let output = run_rfc_cli(&dir, &["deps", "1"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(stdout.contains("has no dependencies"));
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_deps_missing_dependency() {
+    let dir = create_temp_dir("deps_missing");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "has missing dep"]);
+
+    // Write RFC with dependency on nonexistent RFC-0099
+    write_rfc_with_deps_and_links(&dir, "0001", "has missing dep", "draft", &["RFC-0099"], &[]);
+
+    let output = run_rfc_cli(&dir, &["deps", "1"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(stdout.contains("not found"));
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_deps_reverse() {
+    let dir = create_temp_dir("deps_reverse");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "base rfc"]);
+    run_rfc_cli(&dir, &["new", "child one"]);
+    run_rfc_cli(&dir, &["new", "child two"]);
+
+    write_rfc_with_deps_and_links(&dir, "0002", "child one", "draft", &["RFC-0001"], &[]);
+    write_rfc_with_deps_and_links(&dir, "0003", "child two", "draft", &["RFC-0001"], &[]);
+
+    let output = run_rfc_cli(&dir, &["deps", "1", "--reverse"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(stdout.contains("is depended on by:"));
+    assert!(stdout.contains("RFC-0002"));
+    assert!(stdout.contains("RFC-0003"));
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_deps_reverse_none() {
+    let dir = create_temp_dir("deps_rev_none");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "leaf node"]);
+
+    let output = run_rfc_cli(&dir, &["deps", "1", "--reverse"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(stdout.contains("has no reverse dependencies"));
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_deps_nonexistent_rfc() {
+    let dir = create_temp_dir("deps_norfc");
+    run_rfc_cli(&dir, &["init"]);
+
+    let output = run_rfc_cli(&dir, &["deps", "99"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("not found"));
 
     cleanup(&dir);
 }
