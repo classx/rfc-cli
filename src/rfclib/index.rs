@@ -162,3 +162,72 @@ pub fn refresh_index(project_root: &Path, index: &mut Index) -> Result<(), Strin
 
     Ok(())
 }
+
+/// Completely rebuilds the index from scratch by scanning all RFC files.
+pub fn rebuild_index(project_root: &Path) -> Result<Index, String> {
+    let rfcs_dir = project_root.join("docs/rfcs");
+
+    if !rfcs_dir.exists() {
+        return Err("docs/rfcs/ not found. Run \"rfc-cli init\" first.".to_string());
+    }
+
+    let mut index = Index::empty();
+
+    let entries = fs::read_dir(&rfcs_dir)
+        .map_err(|e| format!("Failed to read {}: {}", rfcs_dir.display(), e))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+
+        let stem = match name_str.strip_suffix(".md") {
+            Some(s) => s,
+            None => continue,
+        };
+        if stem.parse::<u32>().is_err() {
+            continue;
+        }
+        let number = stem.to_string();
+
+        let file_path = rfcs_dir.join(&*name_str);
+        let content = fs::read_to_string(&file_path)
+            .map_err(|e| format!("Failed to read {}: {}", file_path.display(), e))?;
+
+        let frontmatter = crate::rfclib::rfc::parse_frontmatter(&content)?;
+
+        let metadata = entry
+            .metadata()
+            .map_err(|e| format!("Failed to get metadata for {}: {}", name_str, e))?;
+        let file_mtime = metadata
+            .modified()
+            .unwrap_or(SystemTime::UNIX_EPOCH)
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_secs().to_string())
+            .unwrap_or_default();
+
+        let content_hash =
+            if frontmatter.status == "accepted" || frontmatter.status == "implemented" {
+                Some(compute_content_hash(&content))
+            } else {
+                None
+            };
+
+        index.rfcs.push(IndexEntry {
+            number,
+            title: frontmatter.title,
+            status: frontmatter.status,
+            dependencies: frontmatter.dependencies,
+            superseded_by: frontmatter.superseded_by,
+            links: frontmatter.links,
+            mtime: file_mtime,
+            content_hash,
+        });
+    }
+
+    index.rfcs.sort_by(|a, b| a.number.cmp(&b.number));
+
+    save_index(project_root, &index)?;
+
+    Ok(index)
+}
