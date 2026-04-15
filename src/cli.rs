@@ -57,4 +57,32 @@ pub enum Commands {
     },
     /// Полностью перестроить индекс
     Reindex,
+    /// Связать RFC с файлом исходного кода
+    Link {
+        /// Номер RFC
+        number: String,
+        /// Путь к файлу (относительно корня проекта)
+        path: String,
+        /// Разрешить изменение accepted/implemented RFC
+        #[arg(long)]
+        force: bool,
+    },
+    /// Убрать связь RFC с файлом
+    Unlink {
+        /// Номер RFC
+        number: String,
+        /// Путь к файлу
+        path: String,
+        /// Разрешить изменение accepted/implemented RFC
+        #[arg(long)]
+        force: bool,
+    },
+    /// Показать дерево зависимостей RFC
+    Deps {
+        /// Номер RFC
+        number: String,
+        /// Показать обратные зависимости (кто зависит от данного RFC)
+        #[arg(long)]
+        reverse: bool,
+    },
 }

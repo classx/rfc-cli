@@ -161,3 +161,178 @@ pub fn update_frontmatter_field(
 
     Ok(new_content)
 }
+
+/// Normalizes a link path: removes leading `./`, rejects absolute paths.
+pub fn normalize_link_path(path: &str) -> Result<String, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("Link path cannot be empty.".to_string());
+    }
+    if trimmed.starts_with('/') {
+        return Err(format!("Absolute paths are not allowed: {}", trimmed));
+    }
+    let normalized = trimmed.replace('\\', "/");
+    let normalized = normalized.strip_prefix("./").unwrap_or(&normalized);
+    Ok(normalized.to_string())
+}
+
+/// Adds an item to a list field in YAML frontmatter.
+/// Returns the full file content after the update.
+pub fn add_to_frontmatter_list(
+    file_path: &Path,
+    field: &str,
+    value: &str,
+) -> Result<String, String> {
+    let content = std::fs::read_to_string(file_path)
+        .map_err(|e| format!("Failed to read {}: {}", file_path.display(), e))?;
+
+    let lines: Vec<&str> = content.lines().collect();
+
+    if lines.is_empty() || lines[0].trim() != "---" {
+        return Err("Missing opening --- in frontmatter".to_string());
+    }
+
+    let closing_idx = lines
+        .iter()
+        .skip(1)
+        .position(|line| line.trim() == "---")
+        .map(|pos| pos + 1)
+        .ok_or_else(|| "Missing closing --- in frontmatter".to_string())?;
+
+    // Find the field line
+    let field_prefix = format!("{}:", field);
+    let field_line_idx = (1..closing_idx)
+        .find(|&i| lines[i].starts_with(&field_prefix))
+        .ok_or_else(|| format!("Field '{}' not found in frontmatter", field))?;
+
+    // Determine the range of lines belonging to this field
+    // The field line itself, plus any subsequent lines that are indented list items (  - ...)
+    let mut field_end_idx = field_line_idx + 1;
+    while field_end_idx < closing_idx && lines[field_end_idx].starts_with("  - ") {
+        field_end_idx += 1;
+    }
+
+    // Parse existing items using parse_frontmatter
+    let frontmatter = parse_frontmatter(&content)?;
+    let mut items: Vec<String> = match field {
+        "links" => frontmatter.links,
+        "dependencies" => frontmatter.dependencies,
+        _ => return Err(format!("Unsupported list field: {}", field)),
+    };
+
+    // Add the new value
+    items.push(value.to_string());
+
+    // Build replacement lines
+    let mut replacement: Vec<String> = Vec::new();
+    if items.is_empty() {
+        replacement.push(format!("{}: []", field));
+    } else {
+        replacement.push(format!("{}:", field));
+        for item in &items {
+            replacement.push(format!("  - {}", item));
+        }
+    }
+
+    // Reconstruct the file
+    let mut new_lines: Vec<String> = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        if i == field_line_idx {
+            // Replace with new block
+            for r in &replacement {
+                new_lines.push(r.clone());
+            }
+        } else if i > field_line_idx && i < field_end_idx {
+            // Skip old list items
+            continue;
+        } else {
+            new_lines.push(line.to_string());
+        }
+    }
+
+    let new_content = new_lines.join("\n") + "\n";
+
+    std::fs::write(file_path, &new_content)
+        .map_err(|e| format!("Failed to write {}: {}", file_path.display(), e))?;
+
+    Ok(new_content)
+}
+
+/// Removes an item from a list field in YAML frontmatter.
+/// Returns the full file content after the update.
+pub fn remove_from_frontmatter_list(
+    file_path: &Path,
+    field: &str,
+    value: &str,
+) -> Result<String, String> {
+    let content = std::fs::read_to_string(file_path)
+        .map_err(|e| format!("Failed to read {}: {}", file_path.display(), e))?;
+
+    let lines: Vec<&str> = content.lines().collect();
+
+    if lines.is_empty() || lines[0].trim() != "---" {
+        return Err("Missing opening --- in frontmatter".to_string());
+    }
+
+    let closing_idx = lines
+        .iter()
+        .skip(1)
+        .position(|line| line.trim() == "---")
+        .map(|pos| pos + 1)
+        .ok_or_else(|| "Missing closing --- in frontmatter".to_string())?;
+
+    let field_prefix = format!("{}:", field);
+    let field_line_idx = (1..closing_idx)
+        .find(|&i| lines[i].starts_with(&field_prefix))
+        .ok_or_else(|| format!("Field '{}' not found in frontmatter", field))?;
+
+    let mut field_end_idx = field_line_idx + 1;
+    while field_end_idx < closing_idx && lines[field_end_idx].starts_with("  - ") {
+        field_end_idx += 1;
+    }
+
+    let frontmatter = parse_frontmatter(&content)?;
+    let mut items: Vec<String> = match field {
+        "links" => frontmatter.links,
+        "dependencies" => frontmatter.dependencies,
+        _ => return Err(format!("Unsupported list field: {}", field)),
+    };
+
+    // Remove the value
+    let original_len = items.len();
+    items.retain(|item| item != value);
+    if items.len() == original_len {
+        return Err(format!("Value '{}' not found in field '{}'", value, field));
+    }
+
+    // Build replacement lines
+    let mut replacement: Vec<String> = Vec::new();
+    if items.is_empty() {
+        replacement.push(format!("{}: []", field));
+    } else {
+        replacement.push(format!("{}:", field));
+        for item in &items {
+            replacement.push(format!("  - {}", item));
+        }
+    }
+
+    let mut new_lines: Vec<String> = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        if i == field_line_idx {
+            for r in &replacement {
+                new_lines.push(r.clone());
+            }
+        } else if i > field_line_idx && i < field_end_idx {
+            continue;
+        } else {
+            new_lines.push(line.to_string());
+        }
+    }
+
+    let new_content = new_lines.join("\n") + "\n";
+
+    std::fs::write(file_path, &new_content)
+        .map_err(|e| format!("Failed to write {}: {}", file_path.display(), e))?;
+
+    Ok(new_content)
+}

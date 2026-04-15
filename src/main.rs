@@ -28,6 +28,19 @@ fn main() {
         }
         Commands::Check { number } => commands::check::execute(&project_root, number.as_deref()),
         Commands::Reindex => commands::reindex::execute(&project_root),
+        Commands::Link {
+            number,
+            path,
+            force,
+        } => commands::link::execute(&project_root, &number, &path, force),
+        Commands::Unlink {
+            number,
+            path,
+            force,
+        } => commands::unlink::execute(&project_root, &number, &path, force),
+        Commands::Deps { number, reverse } => {
+            commands::deps::execute(&project_root, &number, reverse)
+        }
     };
 
     if let Err(e) = result {
