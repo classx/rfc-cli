@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RfcFrontmatter {
@@ -62,4 +63,23 @@ links: []
 "#,
         number, title
     )
+}
+
+/// Normalizes RFC number: "1" → "0001", "0001" → "0001", "42" → "0042"
+pub fn normalize_number(input: &str) -> Result<String, String> {
+    let n: u32 = input.parse().map_err(|_| {
+        format!(
+            "Invalid RFC number: '{}'. Expected a positive integer.",
+            input
+        )
+    })?;
+    Ok(format!("{:04}", n))
+}
+
+/// Returns path to RFC file by number
+pub fn rfc_path(project_root: &Path, number: &str) -> Result<PathBuf, String> {
+    let normalized = normalize_number(number)?;
+    Ok(project_root
+        .join("docs/rfcs")
+        .join(format!("{}.md", normalized)))
 }

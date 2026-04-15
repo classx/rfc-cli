@@ -16,4 +16,28 @@ pub enum Commands {
         /// Название RFC
         title: String,
     },
+    /// Вывод списка всех RFC
+    List {
+        /// Фильтр по статусу
+        #[arg(long)]
+        status: Option<String>,
+    },
+    /// Просмотр содержимого RFC
+    View {
+        /// Номер RFC
+        number: String,
+    },
+    /// Показать статус RFC
+    Status {
+        /// Номер RFC
+        number: String,
+    },
+    /// Открыть RFC в редакторе
+    Edit {
+        /// Номер RFC
+        number: String,
+        /// Разрешить редактирование accepted/implemented RFC
+        #[arg(long)]
+        force: bool,
+    },
 }
