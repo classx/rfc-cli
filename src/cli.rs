@@ -85,4 +85,10 @@ pub enum Commands {
         #[arg(long)]
         reverse: bool,
     },
+    /// Диагностика здоровья RFC-проекта
+    Doctor {
+        /// Порог дней для определения зависшего черновика (по умолчанию 30)
+        #[arg(long, default_value = "30")]
+        stale_days: u64,
+    },
 }

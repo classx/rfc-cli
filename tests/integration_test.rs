@@ -2096,3 +2096,378 @@ fn test_deps_nonexistent_rfc() {
 
     cleanup(&dir);
 }
+
+// ==================== doctor ====================
+
+#[test]
+fn test_doctor_healthy_project() {
+    let dir = create_temp_dir("doctor_healthy");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "healthy rfc"]);
+
+    let output = run_rfc_cli(&dir, &["doctor"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(stdout.contains("All RFCs are healthy."));
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_doctor_empty_project() {
+    let dir = create_temp_dir("doctor_empty");
+    run_rfc_cli(&dir, &["init"]);
+
+    let output = run_rfc_cli(&dir, &["doctor"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(stdout.contains("All RFCs are healthy."));
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_doctor_code_drift() {
+    let dir = create_temp_dir("doctor_drift");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "drift test"]);
+
+    // Create a source file, link it, then promote to accepted
+    let src_dir = dir.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
+
+    run_rfc_cli(&dir, &["link", "1", "src/main.rs"]);
+    run_rfc_cli(&dir, &["set", "1", "review"]);
+    run_rfc_cli(&dir, &["set", "1", "accepted"]);
+
+    // Now modify the linked file so its mtime is newer than the RFC
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    fs::write(src_dir.join("main.rs"), "fn main() { /* changed */ }").unwrap();
+
+    let output = run_rfc_cli(&dir, &["doctor"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{}{}", stdout, stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        combined.contains("code drift"),
+        "should report code drift, got: {}",
+        combined
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_doctor_no_drift() {
+    let dir = create_temp_dir("doctor_no_drift");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "no drift"]);
+
+    let src_dir = dir.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
+
+    run_rfc_cli(&dir, &["link", "1", "src/main.rs"]);
+    run_rfc_cli(&dir, &["set", "1", "review"]);
+    run_rfc_cli(&dir, &["set", "1", "accepted"]);
+
+    // Don't modify the linked file — no drift
+    let output = run_rfc_cli(&dir, &["doctor"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Should not contain code drift for this RFC
+    assert!(
+        !stdout.contains("code drift"),
+        "should not report code drift"
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_doctor_no_implementation() {
+    let dir = create_temp_dir("doctor_no_impl");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "no impl"]);
+
+    run_rfc_cli(&dir, &["set", "1", "review"]);
+    run_rfc_cli(&dir, &["set", "1", "accepted"]);
+
+    let output = run_rfc_cli(&dir, &["doctor"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success(), "warnings only → exit 0");
+    assert!(
+        stdout.contains("no linked files"),
+        "should warn about no links, got: {}",
+        stdout
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_doctor_accepted_with_links() {
+    let dir = create_temp_dir("doctor_acc_links");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "has links"]);
+
+    let src_dir = dir.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
+
+    run_rfc_cli(&dir, &["link", "1", "src/main.rs"]);
+    run_rfc_cli(&dir, &["set", "1", "review"]);
+    run_rfc_cli(&dir, &["set", "1", "accepted"]);
+
+    let output = run_rfc_cli(&dir, &["doctor"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        !stdout.contains("no linked files"),
+        "should not warn about no links"
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_doctor_dead_link() {
+    let dir = create_temp_dir("doctor_dead");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "dead link"]);
+
+    let src_dir = dir.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
+
+    run_rfc_cli(&dir, &["link", "1", "src/main.rs"]);
+
+    // Delete the linked file
+    fs::remove_file(src_dir.join("main.rs")).unwrap();
+
+    let output = run_rfc_cli(&dir, &["doctor"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{}{}", stdout, stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        combined.contains("dead link"),
+        "should report dead link, got: {}",
+        combined
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_doctor_stale_draft() {
+    let dir = create_temp_dir("doctor_stale");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "stale rfc"]);
+
+    // Use --stale-days 0 so that any draft (even just created) counts as stale.
+    // This avoids needing to manipulate file mtime on disk.
+    let output = run_rfc_cli(&dir, &["doctor", "--stale-days", "0"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "stale draft is warning only → exit 0"
+    );
+    assert!(
+        stdout.contains("stale draft"),
+        "should warn about stale draft, got: {}",
+        stdout
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_doctor_fresh_draft() {
+    let dir = create_temp_dir("doctor_fresh");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "fresh rfc"]);
+
+    // Default stale-days is 30, a just-created RFC should not be stale
+    let output = run_rfc_cli(&dir, &["doctor"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        !stdout.contains("stale draft"),
+        "fresh draft should not be stale"
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_doctor_stale_days_flag() {
+    let dir = create_temp_dir("doctor_stale_flag");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "any draft"]);
+
+    // With --stale-days 0, any draft is stale
+    let output = run_rfc_cli(&dir, &["doctor", "--stale-days", "0"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "stale draft is warning only → exit 0"
+    );
+    assert!(
+        stdout.contains("stale draft"),
+        "with --stale-days 0 every draft should be stale, got: {}",
+        stdout
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_doctor_unresolved_deps() {
+    let dir = create_temp_dir("doctor_unres_deps");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "base"]);
+    run_rfc_cli(&dir, &["new", "depends on base"]);
+
+    // RFC-0001 stays draft, RFC-0002 depends on it and gets accepted
+    write_rfc_with_deps_and_links(&dir, "0002", "depends on base", "draft", &["RFC-0001"], &[]);
+    run_rfc_cli(&dir, &["set", "2", "review"]);
+    run_rfc_cli(&dir, &["set", "2", "accepted"]);
+
+    let output = run_rfc_cli(&dir, &["doctor"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "unresolved deps is warning → exit 0"
+    );
+    assert!(
+        stdout.contains("depends on RFC-0001") && stdout.contains("still in"),
+        "should warn about unresolved dependency, got: {}",
+        stdout
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_doctor_resolved_deps() {
+    let dir = create_temp_dir("doctor_res_deps");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "base"]);
+    run_rfc_cli(&dir, &["new", "depends on base"]);
+
+    // Accept both
+    run_rfc_cli(&dir, &["set", "1", "review"]);
+    run_rfc_cli(&dir, &["set", "1", "accepted"]);
+
+    write_rfc_with_deps_and_links(&dir, "0002", "depends on base", "draft", &["RFC-0001"], &[]);
+    run_rfc_cli(&dir, &["set", "2", "review"]);
+    run_rfc_cli(&dir, &["set", "2", "accepted"]);
+
+    let output = run_rfc_cli(&dir, &["doctor"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        !stdout.contains("still in"),
+        "resolved deps should not trigger warning"
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_doctor_cycle_detected() {
+    let dir = create_temp_dir("doctor_cycle");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "alpha"]);
+    run_rfc_cli(&dir, &["new", "beta"]);
+
+    // Create a cycle: 0001 depends on 0002, 0002 depends on 0001
+    write_rfc_with_deps_and_links(&dir, "0001", "alpha", "draft", &["RFC-0002"], &[]);
+    write_rfc_with_deps_and_links(&dir, "0002", "beta", "draft", &["RFC-0001"], &[]);
+
+    let output = run_rfc_cli(&dir, &["doctor"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{}{}", stdout, stderr);
+
+    assert!(!output.status.success(), "cycles are errors → exit 1");
+    assert!(
+        combined.contains("circular dependency"),
+        "should report cycle, got: {}",
+        combined
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_doctor_no_cycle() {
+    let dir = create_temp_dir("doctor_no_cycle");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "first"]);
+    run_rfc_cli(&dir, &["new", "second"]);
+
+    // Linear: 0002 depends on 0001 — no cycle
+    write_rfc_with_deps_and_links(&dir, "0002", "second", "draft", &["RFC-0001"], &[]);
+
+    let output = run_rfc_cli(&dir, &["doctor"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        !stdout.contains("circular dependency"),
+        "should not report cycle for linear deps"
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_doctor_exit_code_error() {
+    let dir = create_temp_dir("doctor_exit_err");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "with dead link"]);
+
+    let src_dir = dir.join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
+
+    run_rfc_cli(&dir, &["link", "1", "src/main.rs"]);
+    fs::remove_file(src_dir.join("main.rs")).unwrap();
+
+    let output = run_rfc_cli(&dir, &["doctor"]);
+
+    assert!(
+        !output.status.success(),
+        "errors should cause non-zero exit code"
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_doctor_exit_code_warning_only() {
+    let dir = create_temp_dir("doctor_exit_warn");
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "warning only"]);
+
+    // Accepted RFC without links → warning only
+    run_rfc_cli(&dir, &["set", "1", "review"]);
+    run_rfc_cli(&dir, &["set", "1", "accepted"]);
+
+    let output = run_rfc_cli(&dir, &["doctor"]);
+
+    assert!(output.status.success(), "warnings only should still exit 0");
+
+    cleanup(&dir);
+}
