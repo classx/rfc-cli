@@ -8,7 +8,7 @@
       "superseded_by": null,
       "links": [],
       "mtime": "1776061182",
-      "content_hash": null
+      "content_hash": "af3174903b64eadf66884873152b78f96bed18053e9c6e0c140ce0ba4a95dc83"
     },
     {
       "number": "0002",
@@ -32,7 +32,7 @@
         "Makefile"
       ],
       "mtime": "1776062784",
-      "content_hash": null
+      "content_hash": "6aa1d7199c07c9573510eff35f6e20ee2ebcffed7325ffd768bd4e614b17be77"
     },
     {
       "number": "0003",
@@ -56,8 +56,31 @@
         "Cargo.toml",
         "tests/integration_test.rs"
       ],
-      "mtime": "1776233350",
-      "content_hash": null
+      "mtime": "1776233576",
+      "content_hash": "be3048bf31b38a76c6c76b81ce183ae3be6934f79c91ba2974432814d5f8f9be"
+    },
+    {
+      "number": "0004",
+      "title": "RFC-0004: реализация команд set, check и reindex",
+      "status": "implemented",
+      "dependencies": [
+        "RFC-0001",
+        "RFC-0003"
+      ],
+      "superseded_by": null,
+      "links": [
+        "src/cli.rs",
+        "src/main.rs",
+        "src/commands/mod.rs",
+        "src/commands/set.rs",
+        "src/commands/check.rs",
+        "src/commands/reindex.rs",
+        "src/rfclib/rfc.rs",
+        "src/rfclib/index.rs",
+        "tests/integration_test.rs"
+      ],
+      "mtime": "1776234440",
+      "content_hash": "e81055a9299bef304d13bdc9ad220139f500ec05a8b9e6876fece6b496d4ae15"
     }
   ]
 }

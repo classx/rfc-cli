@@ -23,6 +23,11 @@ fn main() {
         Commands::View { number } => commands::view::execute(&project_root, &number),
         Commands::Status { number } => commands::status::execute(&project_root, &number),
         Commands::Edit { number, force } => commands::edit::execute(&project_root, &number, force),
+        Commands::Set { number, status, by } => {
+            commands::set::execute(&project_root, &number, &status, by.as_deref())
+        }
+        Commands::Check { number } => commands::check::execute(&project_root, number.as_deref()),
+        Commands::Reindex => commands::reindex::execute(&project_root),
     };
 
     if let Err(e) = result {

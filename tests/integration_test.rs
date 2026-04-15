@@ -953,7 +953,617 @@ fn test_edit_normalizes_number() {
 }
 
 // ============================================================
-// Tests for `help` output with new commands
+// Tests for `set` command
+// ============================================================
+
+#[test]
+fn test_set_draft_to_review() {
+    let dir = create_temp_dir("set_draft_review");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "transition test"]);
+
+    let output = run_rfc_cli(&dir, &["set", "1", "review"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(
+        stdout.contains("draft → review"),
+        "should show transition, got: {}",
+        stdout
+    );
+    assert!(stdout.contains("✅"), "should show checkmark");
+
+    // Verify frontmatter updated
+    let content = fs::read_to_string(dir.join("docs/rfcs/0001.md")).unwrap();
+    assert!(
+        content.contains("status: review"),
+        "frontmatter should say review, got: {}",
+        content
+    );
+
+    // Verify index updated
+    let index_content = fs::read_to_string(dir.join("docs/rfcs/.index.json")).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&index_content).unwrap();
+    assert_eq!(parsed["rfcs"][0]["status"], "review");
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_set_review_to_accepted_stores_content_hash() {
+    let dir = create_temp_dir("set_accepted_hash");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "hash test"]);
+    run_rfc_cli(&dir, &["set", "1", "review"]);
+    run_rfc_cli(&dir, &["set", "1", "accepted"]);
+
+    // Verify content_hash is set in index
+    let index_content = fs::read_to_string(dir.join("docs/rfcs/.index.json")).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&index_content).unwrap();
+    assert!(
+        !parsed["rfcs"][0]["content_hash"].is_null(),
+        "content_hash should be set for accepted RFC, got: {}",
+        parsed["rfcs"][0]["content_hash"]
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_set_invalid_transition() {
+    let dir = create_temp_dir("set_invalid");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "invalid test"]);
+
+    // draft → implemented is not allowed
+    let output = run_rfc_cli(&dir, &["set", "1", "implemented"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("not allowed"),
+        "should say transition not allowed, got: {}",
+        stderr
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_set_invalid_status() {
+    let dir = create_temp_dir("set_bad_status");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "bad status test"]);
+
+    let output = run_rfc_cli(&dir, &["set", "1", "bogus"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("Invalid status"),
+        "should say invalid status, got: {}",
+        stderr
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_set_nonexistent_rfc() {
+    let dir = create_temp_dir("set_missing");
+
+    run_rfc_cli(&dir, &["init"]);
+
+    let output = run_rfc_cli(&dir, &["set", "99", "review"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("RFC-0099 not found"),
+        "should say RFC not found, got: {}",
+        stderr
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_set_superseded_requires_by() {
+    let dir = create_temp_dir("set_superseded_no_by");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "old RFC"]);
+    run_rfc_cli(&dir, &["set", "1", "review"]);
+    run_rfc_cli(&dir, &["set", "1", "accepted"]);
+
+    let output = run_rfc_cli(&dir, &["set", "1", "superseded"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("--by"),
+        "should require --by flag, got: {}",
+        stderr
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_set_superseded_with_by() {
+    let dir = create_temp_dir("set_superseded_ok");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "old RFC"]);
+    run_rfc_cli(&dir, &["new", "new RFC"]);
+    run_rfc_cli(&dir, &["set", "1", "review"]);
+    run_rfc_cli(&dir, &["set", "1", "accepted"]);
+
+    let output = run_rfc_cli(&dir, &["set", "1", "superseded", "--by", "2"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "set superseded --by should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("superseded"),
+        "should mention superseded, got: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("RFC-0002"),
+        "should mention replacing RFC, got: {}",
+        stdout
+    );
+
+    // Verify frontmatter has superseded_by
+    let content = fs::read_to_string(dir.join("docs/rfcs/0001.md")).unwrap();
+    assert!(
+        content.contains("superseded_by: RFC-0002"),
+        "frontmatter should have superseded_by, got: {}",
+        content
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_set_superseded_by_nonexistent() {
+    let dir = create_temp_dir("set_superseded_bad_by");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "old RFC"]);
+    run_rfc_cli(&dir, &["set", "1", "review"]);
+    run_rfc_cli(&dir, &["set", "1", "accepted"]);
+
+    let output = run_rfc_cli(&dir, &["set", "1", "superseded", "--by", "99"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("RFC-0099 not found"),
+        "should say replacing RFC not found, got: {}",
+        stderr
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_set_normalizes_number() {
+    let dir = create_temp_dir("set_normalize");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "normalize test"]);
+
+    let output = run_rfc_cli(&dir, &["set", "1", "review"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(
+        stdout.contains("RFC-0001"),
+        "should show normalized number, got: {}",
+        stdout
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_set_full_lifecycle() {
+    let dir = create_temp_dir("set_lifecycle");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "lifecycle test"]);
+
+    // draft → review → accepted → implemented
+    let o1 = run_rfc_cli(&dir, &["set", "1", "review"]);
+    assert!(o1.status.success(), "draft → review should work");
+
+    let o2 = run_rfc_cli(&dir, &["set", "1", "accepted"]);
+    assert!(o2.status.success(), "review → accepted should work");
+
+    let o3 = run_rfc_cli(&dir, &["set", "1", "implemented"]);
+    assert!(o3.status.success(), "accepted → implemented should work");
+
+    // Verify final state
+    let output = run_rfc_cli(&dir, &["status", "1"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("implemented"),
+        "final status should be implemented, got: {}",
+        stdout
+    );
+
+    cleanup(&dir);
+}
+
+// ============================================================
+// Tests for `check` command
+// ============================================================
+
+#[test]
+fn test_check_all_valid() {
+    let dir = create_temp_dir("check_valid");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "valid RFC"]);
+
+    let output = run_rfc_cli(&dir, &["check"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(
+        stdout.contains("All checks passed"),
+        "should pass all checks, got: {}",
+        stdout
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_check_single_valid() {
+    let dir = create_temp_dir("check_single");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "single check"]);
+
+    let output = run_rfc_cli(&dir, &["check", "1"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(
+        stdout.contains("All checks passed"),
+        "should pass check, got: {}",
+        stdout
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_check_invalid_status() {
+    let dir = create_temp_dir("check_bad_status");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "bad status"]);
+
+    // Manually write invalid status
+    let rfc_path = dir.join("docs/rfcs/0001.md");
+    let content = fs::read_to_string(&rfc_path).unwrap();
+    let bad = content.replace("status: draft", "status: bogus");
+    fs::write(&rfc_path, bad).unwrap();
+
+    let output = run_rfc_cli(&dir, &["check", "1"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("invalid status"),
+        "should report invalid status, got: {}",
+        stderr
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_check_missing_section() {
+    let dir = create_temp_dir("check_missing_section");
+
+    run_rfc_cli(&dir, &["init"]);
+
+    // Write RFC without required sections
+    let content = "---\ntitle: \"RFC-0001: incomplete\"\nstatus: draft\ndependencies: []\nsuperseded_by: null\nlinks: []\n---\n\nSome content without required sections.\n";
+    fs::write(dir.join("docs/rfcs/0001.md"), content).unwrap();
+
+    let output = run_rfc_cli(&dir, &["check", "1"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("missing required section"),
+        "should report missing section, got: {}",
+        stderr
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_check_dead_link() {
+    let dir = create_temp_dir("check_dead_link");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "dead link test"]);
+
+    // Add a non-existent file to links
+    let rfc_path = dir.join("docs/rfcs/0001.md");
+    let content = fs::read_to_string(&rfc_path).unwrap();
+    let updated = content.replace("links: []", "links:\n  - src/nonexistent_file.rs");
+    fs::write(&rfc_path, updated).unwrap();
+
+    let output = run_rfc_cli(&dir, &["check", "1"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("dead link"),
+        "should report dead link, got: {}",
+        stderr
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_check_missing_dependency() {
+    let dir = create_temp_dir("check_bad_dep");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "dep test"]);
+
+    // Add non-existent dependency
+    let rfc_path = dir.join("docs/rfcs/0001.md");
+    let content = fs::read_to_string(&rfc_path).unwrap();
+    let updated = content.replace("dependencies: []", "dependencies: [RFC-0099]");
+    fs::write(&rfc_path, updated).unwrap();
+
+    let output = run_rfc_cli(&dir, &["check", "1"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("dependency") && stderr.contains("not found"),
+        "should report missing dependency, got: {}",
+        stderr
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_check_content_hash_mismatch() {
+    let dir = create_temp_dir("check_hash_mismatch");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "hash test"]);
+    run_rfc_cli(&dir, &["set", "1", "review"]);
+    run_rfc_cli(&dir, &["set", "1", "accepted"]);
+
+    // Tamper with the file content without updating index
+    let rfc_path = dir.join("docs/rfcs/0001.md");
+    let content = fs::read_to_string(&rfc_path).unwrap();
+    // Append text to body (after frontmatter) to change hash
+    let tampered = format!("{}This line was added secretly.\n", content);
+    fs::write(&rfc_path, tampered).unwrap();
+
+    // Update mtime in index so refresh_index sees it, but keep old hash
+    // Actually, refresh_index would catch this too. Let's just run check directly
+    // which reads the file and compares against stored hash.
+    let output = run_rfc_cli(&dir, &["check", "1"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("content_hash mismatch"),
+        "should detect hash mismatch, got: {}",
+        stderr
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_check_nonexistent_rfc() {
+    let dir = create_temp_dir("check_missing");
+
+    run_rfc_cli(&dir, &["init"]);
+
+    let output = run_rfc_cli(&dir, &["check", "99"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("RFC-0099 not found"),
+        "should report RFC not found, got: {}",
+        stderr
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_check_exit_code_zero_on_success() {
+    let dir = create_temp_dir("check_exit_ok");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "exit code test"]);
+
+    let output = run_rfc_cli(&dir, &["check"]);
+
+    assert!(output.status.success(), "exit code should be 0 on success");
+
+    cleanup(&dir);
+}
+
+// ============================================================
+// Tests for `reindex` command
+// ============================================================
+
+#[test]
+fn test_reindex_rebuilds_index() {
+    let dir = create_temp_dir("reindex_rebuild");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "first"]);
+    run_rfc_cli(&dir, &["new", "second"]);
+    run_rfc_cli(&dir, &["new", "third"]);
+
+    let output = run_rfc_cli(&dir, &["reindex"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(
+        stdout.contains("Reindexed 3 RFCs"),
+        "should say 3 RFCs reindexed, got: {}",
+        stdout
+    );
+
+    // Verify index has correct entries
+    let index_content = fs::read_to_string(dir.join("docs/rfcs/.index.json")).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&index_content).unwrap();
+    let rfcs = parsed["rfcs"].as_array().unwrap();
+    assert_eq!(rfcs.len(), 3);
+    assert_eq!(rfcs[0]["number"], "0001");
+    assert_eq!(rfcs[1]["number"], "0002");
+    assert_eq!(rfcs[2]["number"], "0003");
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_reindex_recovers_corrupted_index() {
+    let dir = create_temp_dir("reindex_corrupted");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "will survive"]);
+    run_rfc_cli(&dir, &["new", "also survives"]);
+
+    // Corrupt the index
+    fs::write(dir.join("docs/rfcs/.index.json"), "CORRUPTED").unwrap();
+
+    let output = run_rfc_cli(&dir, &["reindex"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "reindex should succeed even with corrupted index, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("Reindexed 2 RFCs"),
+        "should reindex 2 RFCs, got: {}",
+        stdout
+    );
+
+    // Verify the index is now valid
+    let index_content = fs::read_to_string(dir.join("docs/rfcs/.index.json")).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&index_content).unwrap();
+    let rfcs = parsed["rfcs"].as_array().unwrap();
+    assert_eq!(rfcs.len(), 2);
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_reindex_accepted_gets_content_hash() {
+    let dir = create_temp_dir("reindex_hash");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "hash via reindex"]);
+    run_rfc_cli(&dir, &["set", "1", "review"]);
+    run_rfc_cli(&dir, &["set", "1", "accepted"]);
+
+    // Clear index and rebuild
+    fs::write(dir.join("docs/rfcs/.index.json"), "{\"rfcs\": []}").unwrap();
+
+    run_rfc_cli(&dir, &["reindex"]);
+
+    let index_content = fs::read_to_string(dir.join("docs/rfcs/.index.json")).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&index_content).unwrap();
+    assert!(
+        !parsed["rfcs"][0]["content_hash"].is_null(),
+        "reindex should compute content_hash for accepted RFC"
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_reindex_draft_has_no_content_hash() {
+    let dir = create_temp_dir("reindex_no_hash");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "draft rfc"]);
+
+    run_rfc_cli(&dir, &["reindex"]);
+
+    let index_content = fs::read_to_string(dir.join("docs/rfcs/.index.json")).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&index_content).unwrap();
+    assert!(
+        parsed["rfcs"][0]["content_hash"].is_null(),
+        "reindex should NOT set content_hash for draft RFC"
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_reindex_without_init() {
+    let dir = create_temp_dir("reindex_no_init");
+
+    let output = run_rfc_cli(&dir, &["reindex"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("rfc-cli init"),
+        "should suggest running init, got: {}",
+        stderr
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_reindex_message_format() {
+    let dir = create_temp_dir("reindex_msg");
+
+    run_rfc_cli(&dir, &["init"]);
+
+    let output = run_rfc_cli(&dir, &["reindex"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(
+        stdout.contains("Reindexed 0 RFCs"),
+        "empty project should say 0 RFCs, got: {}",
+        stdout
+    );
+
+    cleanup(&dir);
+}
+
+// ============================================================
+// Tests for `help` output with all commands
 // ============================================================
 
 #[test]
@@ -968,6 +1578,9 @@ fn test_help_shows_new_commands() {
     assert!(stdout.contains("view"), "help should mention view");
     assert!(stdout.contains("status"), "help should mention status");
     assert!(stdout.contains("edit"), "help should mention edit");
+    assert!(stdout.contains("set"), "help should mention set");
+    assert!(stdout.contains("check"), "help should mention check");
+    assert!(stdout.contains("reindex"), "help should mention reindex");
 
     cleanup(&dir);
 }

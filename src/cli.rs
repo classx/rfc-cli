@@ -40,4 +40,21 @@ pub enum Commands {
         #[arg(long)]
         force: bool,
     },
+    /// Изменить статус RFC
+    Set {
+        /// Номер RFC
+        number: String,
+        /// Целевой статус
+        status: String,
+        /// Замещающий RFC (для перехода в superseded)
+        #[arg(long)]
+        by: Option<String>,
+    },
+    /// Проверить валидность RFC
+    Check {
+        /// Номер RFC (если не указан — проверить все)
+        number: Option<String>,
+    },
+    /// Полностью перестроить индекс
+    Reindex,
 }

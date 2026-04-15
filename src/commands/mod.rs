@@ -1,6 +1,9 @@
+pub mod check;
 pub mod edit;
 pub mod init;
 pub mod list;
 pub mod new;
+pub mod reindex;
+pub mod set;
 pub mod status;
 pub mod view;
