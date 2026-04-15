@@ -1,3 +1,63 @@
 {
-  "rfcs": []
+  "rfcs": [
+    {
+      "number": "0001",
+      "title": "RFC-0001: структура RFC cli",
+      "status": "accepted",
+      "dependencies": [],
+      "superseded_by": null,
+      "links": [],
+      "mtime": "1776061182",
+      "content_hash": null
+    },
+    {
+      "number": "0002",
+      "title": "RFC-0002: реализация команд init и new",
+      "status": "implemented",
+      "dependencies": [
+        "RFC-0001"
+      ],
+      "superseded_by": null,
+      "links": [
+        "src/main.rs",
+        "src/cli.rs",
+        "src/commands/mod.rs",
+        "src/commands/init.rs",
+        "src/commands/new.rs",
+        "src/rfclib/mod.rs",
+        "src/rfclib/rfc.rs",
+        "src/rfclib/index.rs",
+        "src/rfclib/project.rs",
+        "tests/integration_test.rs",
+        "Makefile"
+      ],
+      "mtime": "1776062784",
+      "content_hash": null
+    },
+    {
+      "number": "0003",
+      "title": "RFC-0003: реализация команд list, view, status и edit",
+      "status": "implemented",
+      "dependencies": [
+        "RFC-0001",
+        "RFC-0002"
+      ],
+      "superseded_by": null,
+      "links": [
+        "src/cli.rs",
+        "src/main.rs",
+        "src/commands/mod.rs",
+        "src/commands/list.rs",
+        "src/commands/view.rs",
+        "src/commands/status.rs",
+        "src/commands/edit.rs",
+        "src/rfclib/rfc.rs",
+        "src/rfclib/index.rs",
+        "Cargo.toml",
+        "tests/integration_test.rs"
+      ],
+      "mtime": "1776233350",
+      "content_hash": null
+    }
+  ]
 }

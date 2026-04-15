@@ -1,5 +1,7 @@
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+use std::process::Output;
 
 // Helper: create a temporary directory for test isolation
 fn create_temp_dir(test_name: &str) -> std::path::PathBuf {
@@ -19,13 +21,91 @@ fn cleanup(dir: &Path) {
 }
 
 // Helper: run rfc-cli binary with given args in a specific directory
-fn run_rfc_cli(project_dir: &Path, args: &[&str]) -> std::process::Output {
+fn run_rfc_cli(project_dir: &Path, args: &[&str]) -> Output {
     let binary = env!("CARGO_BIN_EXE_rfc-cli");
     std::process::Command::new(binary)
         .args(args)
         .env("RFC_HOME", project_dir.as_os_str())
         .output()
         .expect("Failed to execute rfc-cli")
+}
+
+// Helper: run rfc-cli with a custom $EDITOR
+fn run_rfc_cli_with_editor(project_dir: &Path, args: &[&str], editor: &str) -> Output {
+    let binary = env!("CARGO_BIN_EXE_rfc-cli");
+    std::process::Command::new(binary)
+        .args(args)
+        .env("RFC_HOME", project_dir.as_os_str())
+        .env("EDITOR", editor)
+        .output()
+        .expect("Failed to execute rfc-cli")
+}
+
+// Helper: run rfc-cli with $EDITOR explicitly removed
+fn run_rfc_cli_without_editor(project_dir: &Path, args: &[&str]) -> Output {
+    let binary = env!("CARGO_BIN_EXE_rfc-cli");
+    std::process::Command::new(binary)
+        .args(args)
+        .env("RFC_HOME", project_dir.as_os_str())
+        .env_remove("EDITOR")
+        .output()
+        .expect("Failed to execute rfc-cli")
+}
+
+// Helper: write an RFC file with given status AND update the index entry
+fn write_rfc_with_status(dir: &Path, number: &str, title: &str, status: &str) {
+    let content = format!(
+        "---\ntitle: \"RFC-{}: {}\"\nstatus: {}\ndependencies: []\nsuperseded_by: null\nlinks: []\n---\n\n## Проблема\n",
+        number, title, status
+    );
+    let rfc_path = dir.join(format!("docs/rfcs/{}.md", number));
+    fs::write(&rfc_path, &content).unwrap();
+
+    // Also update the index so status is consistent
+    let index_path = dir.join("docs/rfcs/.index.json");
+    let index_content = fs::read_to_string(&index_path).unwrap();
+    let mut parsed: serde_json::Value = serde_json::from_str(&index_content).unwrap();
+
+    let full_title = format!("RFC-{}: {}", number, title);
+    let mtime = fs::metadata(&rfc_path)
+        .and_then(|m| m.modified())
+        .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs().to_string())
+        .unwrap_or_default();
+
+    let rfcs = parsed["rfcs"].as_array_mut().unwrap();
+    // Update existing entry or add new one
+    let existing = rfcs
+        .iter_mut()
+        .find(|e| e["number"].as_str() == Some(number));
+    if let Some(entry) = existing {
+        entry["status"] = serde_json::json!(status);
+        entry["title"] = serde_json::json!(full_title);
+        entry["mtime"] = serde_json::json!(mtime);
+    } else {
+        rfcs.push(serde_json::json!({
+            "number": number,
+            "title": full_title,
+            "status": status,
+            "dependencies": [],
+            "superseded_by": null,
+            "links": [],
+            "mtime": mtime,
+            "content_hash": null
+        }));
+    }
+
+    fs::write(&index_path, serde_json::to_string_pretty(&parsed).unwrap()).unwrap();
+}
+
+// Helper: create a temporary shell script to use as a fake $EDITOR
+fn create_fake_editor_script(dir: &Path, name: &str, body: &str) -> String {
+    let script_path = dir.join(name);
+    let script_content = format!("#!/bin/sh\n{}\n", body);
+    fs::write(&script_path, &script_content).unwrap();
+    fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).unwrap();
+    script_path.to_string_lossy().to_string()
 }
 
 // ============================================================
@@ -444,6 +524,450 @@ fn test_new_without_title_fails() {
     let output = run_rfc_cli(&dir, &["new"]);
 
     assert!(!output.status.success(), "new without title should fail");
+
+    cleanup(&dir);
+}
+
+// ============================================================
+// Tests for `list` command
+// ============================================================
+
+#[test]
+fn test_list_empty_index() {
+    let dir = create_temp_dir("list_empty");
+
+    run_rfc_cli(&dir, &["init"]);
+
+    let output = run_rfc_cli(&dir, &["list"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(
+        stdout.contains("No RFCs found"),
+        "empty list should say 'No RFCs found.', got: {}",
+        stdout
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_list_shows_all_rfcs_sorted() {
+    let dir = create_temp_dir("list_all");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "first RFC"]);
+    run_rfc_cli(&dir, &["new", "second RFC"]);
+    run_rfc_cli(&dir, &["new", "third RFC"]);
+
+    let output = run_rfc_cli(&dir, &["list"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(stdout.contains("0001"), "should contain 0001");
+    assert!(stdout.contains("0002"), "should contain 0002");
+    assert!(stdout.contains("0003"), "should contain 0003");
+    assert!(stdout.contains("draft"), "should show draft status");
+
+    // Verify order: 0001 appears before 0002, 0002 before 0003
+    let pos1 = stdout.find("0001").unwrap();
+    let pos2 = stdout.find("0002").unwrap();
+    let pos3 = stdout.find("0003").unwrap();
+    assert!(pos1 < pos2, "0001 should appear before 0002");
+    assert!(pos2 < pos3, "0002 should appear before 0003");
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_list_filter_by_status() {
+    let dir = create_temp_dir("list_filter");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "draft one"]);
+    run_rfc_cli(&dir, &["new", "draft two"]);
+
+    // Manually change second RFC to accepted
+    write_rfc_with_status(&dir, "0002", "accepted one", "accepted");
+
+    let output = run_rfc_cli(&dir, &["list", "--status", "draft"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(stdout.contains("0001"), "should contain draft RFC 0001");
+    assert!(
+        !stdout.contains("0002"),
+        "should NOT contain accepted RFC 0002"
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_list_filter_no_match() {
+    let dir = create_temp_dir("list_filter_none");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "a draft"]);
+
+    let output = run_rfc_cli(&dir, &["list", "--status", "accepted"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(
+        stdout.contains("No RFCs found"),
+        "should say 'No RFCs found.' when filter matches nothing, got: {}",
+        stdout
+    );
+
+    cleanup(&dir);
+}
+
+// ============================================================
+// Tests for `view` command
+// ============================================================
+
+#[test]
+fn test_view_shows_content() {
+    let dir = create_temp_dir("view_content");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "viewable RFC"]);
+
+    let output = run_rfc_cli(&dir, &["view", "1"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(
+        stdout.contains("RFC-0001: viewable RFC"),
+        "should contain the RFC title, got: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("status: draft"),
+        "should contain status field"
+    );
+    assert!(
+        stdout.contains("## Проблема"),
+        "should contain RFC sections"
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_view_normalizes_number() {
+    let dir = create_temp_dir("view_normalize");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "normalize test"]);
+
+    // view 1 and view 0001 should produce identical output
+    let output_short = run_rfc_cli(&dir, &["view", "1"]);
+    let output_long = run_rfc_cli(&dir, &["view", "0001"]);
+
+    let stdout_short = String::from_utf8_lossy(&output_short.stdout);
+    let stdout_long = String::from_utf8_lossy(&output_long.stdout);
+
+    assert!(output_short.status.success());
+    assert!(output_long.status.success());
+    assert_eq!(
+        stdout_short, stdout_long,
+        "view 1 and view 0001 should produce identical output"
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_view_nonexistent_rfc() {
+    let dir = create_temp_dir("view_missing");
+
+    run_rfc_cli(&dir, &["init"]);
+
+    let output = run_rfc_cli(&dir, &["view", "99"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("RFC-0099 not found"),
+        "should report RFC-0099 not found, got: {}",
+        stderr
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_view_invalid_number() {
+    let dir = create_temp_dir("view_invalid");
+
+    run_rfc_cli(&dir, &["init"]);
+
+    let output = run_rfc_cli(&dir, &["view", "abc"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("Invalid RFC number"),
+        "should report invalid number, got: {}",
+        stderr
+    );
+
+    cleanup(&dir);
+}
+
+// ============================================================
+// Tests for `status` command
+// ============================================================
+
+#[test]
+fn test_status_shows_status() {
+    let dir = create_temp_dir("status_show");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "status test"]);
+
+    let output = run_rfc_cli(&dir, &["status", "1"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(
+        stdout.contains("RFC-0001: draft"),
+        "should output 'RFC-0001: draft', got: {}",
+        stdout
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_status_normalizes_number() {
+    let dir = create_temp_dir("status_normalize");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "normalize test"]);
+
+    let output_short = run_rfc_cli(&dir, &["status", "1"]);
+    let output_long = run_rfc_cli(&dir, &["status", "0001"]);
+
+    let stdout_short = String::from_utf8_lossy(&output_short.stdout);
+    let stdout_long = String::from_utf8_lossy(&output_long.stdout);
+
+    assert!(output_short.status.success());
+    assert!(output_long.status.success());
+    assert_eq!(
+        stdout_short, stdout_long,
+        "status 1 and status 0001 should produce identical output"
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_status_nonexistent_rfc() {
+    let dir = create_temp_dir("status_missing");
+
+    run_rfc_cli(&dir, &["init"]);
+
+    let output = run_rfc_cli(&dir, &["status", "99"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("RFC-0099 not found"),
+        "should report RFC-0099 not found, got: {}",
+        stderr
+    );
+
+    cleanup(&dir);
+}
+
+// ============================================================
+// Tests for `edit` command
+// ============================================================
+
+#[test]
+fn test_edit_fails_without_editor() {
+    let dir = create_temp_dir("edit_no_editor");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "editor test"]);
+
+    let output = run_rfc_cli_without_editor(&dir, &["edit", "1"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("EDITOR is not set"),
+        "should report EDITOR is not set, got: {}",
+        stderr
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_edit_nonexistent_rfc() {
+    let dir = create_temp_dir("edit_missing");
+
+    run_rfc_cli(&dir, &["init"]);
+
+    let output = run_rfc_cli_with_editor(&dir, &["edit", "99"], "true");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("RFC-0099 not found"),
+        "should report RFC-0099 not found, got: {}",
+        stderr
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_edit_blocks_accepted_rfc() {
+    let dir = create_temp_dir("edit_blocked");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "locked RFC"]);
+
+    // Manually set status to accepted
+    write_rfc_with_status(&dir, "0001", "locked RFC", "accepted");
+
+    let output = run_rfc_cli_with_editor(&dir, &["edit", "1"], "true");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "edit should fail for accepted RFC without --force"
+    );
+    assert!(
+        stderr.contains("accepted"),
+        "error should mention 'accepted', got: {}",
+        stderr
+    );
+    assert!(
+        stderr.contains("--force"),
+        "error should suggest --force, got: {}",
+        stderr
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_edit_force_allows_accepted_rfc() {
+    let dir = create_temp_dir("edit_force");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "locked RFC"]);
+
+    // Manually set status to accepted
+    write_rfc_with_status(&dir, "0001", "locked RFC", "accepted");
+
+    // "true" is a command that exits immediately with success
+    let output = run_rfc_cli_with_editor(&dir, &["edit", "1", "--force"], "true");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "edit --force should succeed for accepted RFC, stderr: {}",
+        stderr
+    );
+    assert!(
+        stderr.contains("Warning"),
+        "should print warning, got: {}",
+        stderr
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_edit_updates_index_after_save() {
+    let dir = create_temp_dir("edit_index_update");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "original title"]);
+
+    // Create a fake editor script that changes the title
+    let editor = create_fake_editor_script(
+        &dir,
+        "fake_editor.sh",
+        "sed -i.bak 's/original/changed/' \"$1\"",
+    );
+
+    let output = run_rfc_cli_with_editor(&dir, &["edit", "1"], &editor);
+    assert!(
+        output.status.success(),
+        "edit should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Verify file was changed
+    let content = fs::read_to_string(dir.join("docs/rfcs/0001.md")).unwrap();
+    assert!(
+        content.contains("changed title"),
+        "file should contain 'changed title', got: {}",
+        content
+    );
+
+    // Verify index was updated with new title
+    let index_content = fs::read_to_string(dir.join("docs/rfcs/.index.json")).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&index_content).unwrap();
+    let title = parsed["rfcs"][0]["title"].as_str().unwrap();
+    assert!(
+        title.contains("changed"),
+        "index title should contain 'changed', got: {}",
+        title
+    );
+
+    cleanup(&dir);
+}
+
+#[test]
+fn test_edit_normalizes_number() {
+    let dir = create_temp_dir("edit_normalize");
+
+    run_rfc_cli(&dir, &["init"]);
+    run_rfc_cli(&dir, &["new", "normalize test"]);
+
+    // Both "edit 1" and "edit 0001" should work identically
+    let output = run_rfc_cli_with_editor(&dir, &["edit", "1"], "true");
+    assert!(
+        output.status.success(),
+        "edit 1 should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let output = run_rfc_cli_with_editor(&dir, &["edit", "0001"], "true");
+    assert!(
+        output.status.success(),
+        "edit 0001 should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    cleanup(&dir);
+}
+
+// ============================================================
+// Tests for `help` output with new commands
+// ============================================================
+
+#[test]
+fn test_help_shows_new_commands() {
+    let dir = create_temp_dir("help_new_cmds");
+
+    let output = run_rfc_cli(&dir, &["--help"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(stdout.contains("list"), "help should mention list");
+    assert!(stdout.contains("view"), "help should mention view");
+    assert!(stdout.contains("status"), "help should mention status");
+    assert!(stdout.contains("edit"), "help should mention edit");
 
     cleanup(&dir);
 }
