@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "rfc-cli", about = "Управление RFC-документами")]
+#[command(name = "rfc-cli", about = "Manage RFC documents")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -9,85 +9,85 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Инициализация структуры RFC в проекте
+    /// Initialize RFC structure in the project
     Init,
-    /// Создание нового RFC из шаблона
+    /// Create a new RFC from template
     New {
-        /// Название RFC
+        /// RFC title
         title: String,
     },
-    /// Вывод списка всех RFC
+    /// List all RFCs
     List {
-        /// Фильтр по статусу
+        /// Filter by status
         #[arg(long)]
         status: Option<String>,
     },
-    /// Просмотр содержимого RFC
+    /// View RFC contents
     View {
-        /// Номер RFC
+        /// RFC number
         number: String,
     },
-    /// Показать статус RFC
+    /// Show RFC status
     Status {
-        /// Номер RFC
+        /// RFC number
         number: String,
     },
-    /// Открыть RFC в редакторе
+    /// Open RFC in editor
     Edit {
-        /// Номер RFC
+        /// RFC number
         number: String,
-        /// Разрешить редактирование accepted/implemented RFC
+        /// Allow editing accepted/implemented RFCs
         #[arg(long)]
         force: bool,
     },
-    /// Изменить статус RFC
+    /// Change RFC status
     Set {
-        /// Номер RFC
+        /// RFC number
         number: String,
-        /// Целевой статус
+        /// Target status
         status: String,
-        /// Замещающий RFC (для перехода в superseded)
+        /// Superseding RFC (for transition to superseded)
         #[arg(long)]
         by: Option<String>,
     },
-    /// Проверить валидность RFC
+    /// Validate RFC(s)
     Check {
-        /// Номер RFC (если не указан — проверить все)
+        /// RFC number (if omitted, validate all)
         number: Option<String>,
     },
-    /// Полностью перестроить индекс
+    /// Rebuild the index from scratch
     Reindex,
-    /// Связать RFC с файлом исходного кода
+    /// Link RFC to a source code file
     Link {
-        /// Номер RFC
+        /// RFC number
         number: String,
-        /// Путь к файлу (относительно корня проекта)
+        /// File path (relative to project root)
         path: String,
-        /// Разрешить изменение accepted/implemented RFC
+        /// Allow modifying accepted/implemented RFCs
         #[arg(long)]
         force: bool,
     },
-    /// Убрать связь RFC с файлом
+    /// Remove link between RFC and a file
     Unlink {
-        /// Номер RFC
+        /// RFC number
         number: String,
-        /// Путь к файлу
+        /// File path
         path: String,
-        /// Разрешить изменение accepted/implemented RFC
+        /// Allow modifying accepted/implemented RFCs
         #[arg(long)]
         force: bool,
     },
-    /// Показать дерево зависимостей RFC
+    /// Show RFC dependency tree
     Deps {
-        /// Номер RFC
+        /// RFC number
         number: String,
-        /// Показать обратные зависимости (кто зависит от данного RFC)
+        /// Show reverse dependencies (which RFCs depend on this one)
         #[arg(long)]
         reverse: bool,
     },
-    /// Диагностика здоровья RFC-проекта
+    /// Run project-wide RFC health diagnostics
     Doctor {
-        /// Порог дней для определения зависшего черновика (по умолчанию 30)
+        /// Threshold in days for detecting stale drafts (default: 30)
         #[arg(long, default_value = "30")]
         stale_days: u64,
     },
