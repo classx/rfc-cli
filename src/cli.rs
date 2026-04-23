@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
 
 #[derive(Parser)]
@@ -6,6 +6,12 @@ use clap_complete::Shell;
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
+}
+
+#[derive(ValueEnum, Clone, Copy)]
+pub enum DriftStrategy {
+    Git,
+    Mtime,
 }
 
 #[derive(Subcommand)]
@@ -98,5 +104,8 @@ pub enum Commands {
         /// Threshold in days for detecting stale drafts (default: 30)
         #[arg(long, default_value = "30")]
         stale_days: u64,
+        /// Drift detection strategy (default: git)
+        #[arg(long, value_enum, default_value = "git")]
+        drift: DriftStrategy,
     },
 }

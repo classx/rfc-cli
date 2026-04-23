@@ -244,6 +244,7 @@ rfc-cli doctor --stale-days 14
 | Flag | Description |
 |------|-------------|
 | `--stale-days <N>` | Threshold in days for "stale draft" detection (default: 30) |
+| `--drift <strategy>` | Drift detection strategy: `git` (default) or `mtime` |
 
 Diagnostic checks:
 

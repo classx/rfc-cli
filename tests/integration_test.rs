@@ -2105,7 +2105,7 @@ fn test_doctor_healthy_project() {
     run_rfc_cli(&dir, &["init"]);
     run_rfc_cli(&dir, &["new", "healthy rfc"]);
 
-    let output = run_rfc_cli(&dir, &["doctor"]);
+    let output = run_rfc_cli(&dir, &["doctor", "--drift", "mtime"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(output.status.success());
@@ -2119,7 +2119,7 @@ fn test_doctor_empty_project() {
     let dir = create_temp_dir("doctor_empty");
     run_rfc_cli(&dir, &["init"]);
 
-    let output = run_rfc_cli(&dir, &["doctor"]);
+    let output = run_rfc_cli(&dir, &["doctor", "--drift", "mtime"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(output.status.success());
@@ -2147,7 +2147,7 @@ fn test_doctor_code_drift() {
     std::thread::sleep(std::time::Duration::from_millis(1100));
     fs::write(src_dir.join("main.rs"), "fn main() { /* changed */ }").unwrap();
 
-    let output = run_rfc_cli(&dir, &["doctor"]);
+    let output = run_rfc_cli(&dir, &["doctor", "--drift", "mtime"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let combined = format!("{}{}", stdout, stderr);
@@ -2177,7 +2177,7 @@ fn test_doctor_no_drift() {
     run_rfc_cli(&dir, &["set", "1", "accepted"]);
 
     // Don't modify the linked file — no drift
-    let output = run_rfc_cli(&dir, &["doctor"]);
+    let output = run_rfc_cli(&dir, &["doctor", "--drift", "mtime"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     // Should not contain code drift for this RFC
@@ -2198,7 +2198,7 @@ fn test_doctor_no_implementation() {
     run_rfc_cli(&dir, &["set", "1", "review"]);
     run_rfc_cli(&dir, &["set", "1", "accepted"]);
 
-    let output = run_rfc_cli(&dir, &["doctor"]);
+    let output = run_rfc_cli(&dir, &["doctor", "--drift", "mtime"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(output.status.success(), "warnings only → exit 0");
@@ -2225,7 +2225,7 @@ fn test_doctor_accepted_with_links() {
     run_rfc_cli(&dir, &["set", "1", "review"]);
     run_rfc_cli(&dir, &["set", "1", "accepted"]);
 
-    let output = run_rfc_cli(&dir, &["doctor"]);
+    let output = run_rfc_cli(&dir, &["doctor", "--drift", "mtime"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(
@@ -2251,7 +2251,7 @@ fn test_doctor_dead_link() {
     // Delete the linked file
     fs::remove_file(src_dir.join("main.rs")).unwrap();
 
-    let output = run_rfc_cli(&dir, &["doctor"]);
+    let output = run_rfc_cli(&dir, &["doctor", "--drift", "mtime"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let combined = format!("{}{}", stdout, stderr);
@@ -2274,7 +2274,7 @@ fn test_doctor_stale_draft() {
 
     // Use --stale-days 0 so that any draft (even just created) counts as stale.
     // This avoids needing to manipulate file mtime on disk.
-    let output = run_rfc_cli(&dir, &["doctor", "--stale-days", "0"]);
+    let output = run_rfc_cli(&dir, &["doctor", "--stale-days", "0", "--drift", "mtime"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(
@@ -2297,7 +2297,7 @@ fn test_doctor_fresh_draft() {
     run_rfc_cli(&dir, &["new", "fresh rfc"]);
 
     // Default stale-days is 30, a just-created RFC should not be stale
-    let output = run_rfc_cli(&dir, &["doctor"]);
+    let output = run_rfc_cli(&dir, &["doctor", "--drift", "mtime"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(
@@ -2315,7 +2315,7 @@ fn test_doctor_stale_days_flag() {
     run_rfc_cli(&dir, &["new", "any draft"]);
 
     // With --stale-days 0, any draft is stale
-    let output = run_rfc_cli(&dir, &["doctor", "--stale-days", "0"]);
+    let output = run_rfc_cli(&dir, &["doctor", "--stale-days", "0", "--drift", "mtime"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(
@@ -2343,7 +2343,7 @@ fn test_doctor_unresolved_deps() {
     run_rfc_cli(&dir, &["set", "2", "review"]);
     run_rfc_cli(&dir, &["set", "2", "accepted"]);
 
-    let output = run_rfc_cli(&dir, &["doctor"]);
+    let output = run_rfc_cli(&dir, &["doctor", "--drift", "mtime"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(
@@ -2374,7 +2374,7 @@ fn test_doctor_resolved_deps() {
     run_rfc_cli(&dir, &["set", "2", "review"]);
     run_rfc_cli(&dir, &["set", "2", "accepted"]);
 
-    let output = run_rfc_cli(&dir, &["doctor"]);
+    let output = run_rfc_cli(&dir, &["doctor", "--drift", "mtime"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(
@@ -2396,7 +2396,7 @@ fn test_doctor_cycle_detected() {
     write_rfc_with_deps_and_links(&dir, "0001", "alpha", "draft", &["RFC-0002"], &[]);
     write_rfc_with_deps_and_links(&dir, "0002", "beta", "draft", &["RFC-0001"], &[]);
 
-    let output = run_rfc_cli(&dir, &["doctor"]);
+    let output = run_rfc_cli(&dir, &["doctor", "--drift", "mtime"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let combined = format!("{}{}", stdout, stderr);
@@ -2421,7 +2421,7 @@ fn test_doctor_no_cycle() {
     // Linear: 0002 depends on 0001 — no cycle
     write_rfc_with_deps_and_links(&dir, "0002", "second", "draft", &["RFC-0001"], &[]);
 
-    let output = run_rfc_cli(&dir, &["doctor"]);
+    let output = run_rfc_cli(&dir, &["doctor", "--drift", "mtime"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(
@@ -2445,7 +2445,7 @@ fn test_doctor_exit_code_error() {
     run_rfc_cli(&dir, &["link", "1", "src/main.rs"]);
     fs::remove_file(src_dir.join("main.rs")).unwrap();
 
-    let output = run_rfc_cli(&dir, &["doctor"]);
+    let output = run_rfc_cli(&dir, &["doctor", "--drift", "mtime"]);
 
     assert!(
         !output.status.success(),
@@ -2465,7 +2465,7 @@ fn test_doctor_exit_code_warning_only() {
     run_rfc_cli(&dir, &["set", "1", "review"]);
     run_rfc_cli(&dir, &["set", "1", "accepted"]);
 
-    let output = run_rfc_cli(&dir, &["doctor"]);
+    let output = run_rfc_cli(&dir, &["doctor", "--drift", "mtime"]);
 
     assert!(output.status.success(), "warnings only should still exit 0");
 

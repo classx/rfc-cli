@@ -1,8 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 use std::time::SystemTime;
 
+use crate::cli::DriftStrategy;
 use crate::rfclib::index;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -18,7 +20,7 @@ pub struct Diagnostic {
     pub message: String,
 }
 
-pub fn execute(project_root: &Path, stale_days: u64) -> Result<(), String> {
+pub fn execute(project_root: &Path, stale_days: u64, drift: DriftStrategy) -> Result<(), String> {
     let rfcs_dir = project_root.join("docs/rfcs");
     if !rfcs_dir.exists() {
         return Err("docs/rfcs/ not found. Run \"rfc-cli init\" first.".to_string());
@@ -27,10 +29,14 @@ pub fn execute(project_root: &Path, stale_days: u64) -> Result<(), String> {
     let mut idx = index::load_index(project_root)?;
     index::refresh_index(project_root, &mut idx)?;
 
+    if matches!(drift, DriftStrategy::Git) {
+        ensure_git_available(project_root)?;
+    }
+
     let mut diagnostics: Vec<Diagnostic> = Vec::new();
 
     for entry in &idx.rfcs {
-        diagnostics.extend(check_code_drift(project_root, entry));
+        diagnostics.extend(check_code_drift(project_root, entry, drift)?);
         diagnostics.extend(check_no_implementation(entry));
         diagnostics.extend(check_dead_links(project_root, entry));
         diagnostics.extend(check_stale_draft(entry, stale_days));
@@ -101,42 +107,129 @@ pub fn execute(project_root: &Path, stale_days: u64) -> Result<(), String> {
 }
 
 /// D1: Code drift — linked file modified after RFC acceptance
-fn check_code_drift(project_root: &Path, entry: &index::IndexEntry) -> Vec<Diagnostic> {
+fn check_code_drift(
+    project_root: &Path,
+    entry: &index::IndexEntry,
+    drift: DriftStrategy,
+) -> Result<Vec<Diagnostic>, String> {
     let mut results = Vec::new();
 
     if entry.status != "accepted" && entry.status != "implemented" {
-        return results;
+        return Ok(results);
     }
     if entry.links.is_empty() {
-        return results;
+        return Ok(results);
     }
 
     let rfc_path = project_root
         .join("docs/rfcs")
         .join(format!("{}.md", entry.number));
 
-    let rfc_mtime = match fs::metadata(&rfc_path).and_then(|m| m.modified()) {
-        Ok(t) => t,
-        Err(_) => return results,
-    };
+    match drift {
+        DriftStrategy::Git => {
+            let rfc_time = git_commit_time(project_root, &rfc_path)
+                .map_err(|e| format!("{}. Try --drift=mtime", e))?;
 
-    for link in &entry.links {
-        let link_path = project_root.join(link);
-        if !link_path.exists() {
-            continue; // D3 handles missing files
+            for link in &entry.links {
+                let link_path = project_root.join(link);
+                if !link_path.exists() {
+                    continue; // D3 handles missing files
+                }
+                let link_time = git_commit_time(project_root, &link_path)
+                    .map_err(|e| format!("{}. Try --drift=mtime", e))?;
+                if link_time > rfc_time {
+                    results.push(Diagnostic {
+                        rfc_number: entry.number.clone(),
+                        severity: Severity::Error,
+                        message: format!("code drift: {} modified after RFC acceptance", link),
+                    });
+                }
+            }
         }
-        if let Ok(link_mtime) = fs::metadata(&link_path).and_then(|m| m.modified()) {
-            if link_mtime > rfc_mtime {
-                results.push(Diagnostic {
-                    rfc_number: entry.number.clone(),
-                    severity: Severity::Error,
-                    message: format!("code drift: {} modified after RFC acceptance", link),
-                });
+        DriftStrategy::Mtime => {
+            let rfc_mtime = match fs::metadata(&rfc_path).and_then(|m| m.modified()) {
+                Ok(t) => t,
+                Err(_) => return Ok(results),
+            };
+
+            for link in &entry.links {
+                let link_path = project_root.join(link);
+                if !link_path.exists() {
+                    continue; // D3 handles missing files
+                }
+                if let Ok(link_mtime) = fs::metadata(&link_path).and_then(|m| m.modified()) {
+                    if link_mtime > rfc_mtime {
+                        results.push(Diagnostic {
+                            rfc_number: entry.number.clone(),
+                            severity: Severity::Error,
+                            message: format!("code drift: {} modified after RFC acceptance", link),
+                        });
+                    }
+                }
             }
         }
     }
 
-    results
+    Ok(results)
+}
+
+fn ensure_git_available(project_root: &Path) -> Result<(), String> {
+    let output = Command::new("git")
+        .arg("rev-parse")
+        .arg("--is-inside-work-tree")
+        .current_dir(project_root)
+        .output()
+        .map_err(|e| format!("git is not available: {}", e))?;
+
+    if !output.status.success() {
+        return Err("git is not available or not a git repository. Try --drift=mtime".to_string());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if stdout.trim() != "true" {
+        return Err("git is not available or not a git repository. Try --drift=mtime".to_string());
+    }
+
+    Ok(())
+}
+
+fn git_commit_time(project_root: &Path, path: &Path) -> Result<u64, String> {
+    let rel_path = path.strip_prefix(project_root).unwrap_or(path);
+    let output = Command::new("git")
+        .arg("log")
+        .arg("-1")
+        .arg("--format=%ct")
+        .arg("--")
+        .arg(rel_path)
+        .current_dir(project_root)
+        .output()
+        .map_err(|e| {
+            format!(
+                "git commit time unavailable for {}: {}",
+                rel_path.display(),
+                e
+            )
+        })?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "git commit time unavailable for {}",
+            rel_path.display()
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return Err(format!(
+            "git commit time unavailable for {}",
+            rel_path.display()
+        ));
+    }
+
+    trimmed
+        .parse::<u64>()
+        .map_err(|_| format!("git commit time unavailable for {}", rel_path.display()))
 }
 
 /// D2: No implementation — accepted RFC with no links
