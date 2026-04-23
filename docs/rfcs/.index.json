@@ -7,7 +7,7 @@
       "dependencies": [],
       "superseded_by": null,
       "links": [],
-      "mtime": "1776237413",
+      "mtime": "1776237919",
       "content_hash": "30eebe7082e44818bfa175f3a4ca2e2ff42b06854bf0e593e2e457fc62586b8a"
     },
     {
@@ -31,7 +31,7 @@
         "tests/integration_test.rs",
         "Makefile"
       ],
-      "mtime": "1776237571",
+      "mtime": "1776237919",
       "content_hash": "5bf21ef585c8bdb3527d4631ec4d2a939df13b5687676f65df5bea7c0f6c69cb"
     },
     {
@@ -56,7 +56,7 @@
         "Cargo.toml",
         "tests/integration_test.rs"
       ],
-      "mtime": "1776237457",
+      "mtime": "1776237919",
       "content_hash": "043bafbe3a26c13acd0176d2e3c53491c0716930cc564f503ac1224d9f72ed9e"
     },
     {
@@ -79,7 +79,7 @@
         "src/rfclib/index.rs",
         "tests/integration_test.rs"
       ],
-      "mtime": "1776237440",
+      "mtime": "1776237919",
       "content_hash": "18f707229fe93107f0d6a24b92a24fe1071cb7934b7ab4d37453a6c0e5754d30"
     },
     {
@@ -101,7 +101,7 @@
         "src/rfclib/rfc.rs",
         "tests/integration_test.rs"
       ],
-      "mtime": "1776237444",
+      "mtime": "1776237919",
       "content_hash": "5c7bc496cbc74b62cd8289c6759685d67c72d1cc160bb58e5a4bd29d89838957"
     },
     {
@@ -120,8 +120,34 @@
         "src/commands/mod.rs",
         "tests/integration_test.rs"
       ],
-      "mtime": "1776237478",
+      "mtime": "1776237919",
       "content_hash": "f0cf2461fdd5ba254ad6662bdf1a8cf3122309cb2eac20b2cf87c242e4994870"
+    },
+    {
+      "number": "0007",
+      "title": "RFC-0007: команда rfc-cli agents для генерации AGENTS.md",
+      "status": "draft",
+      "dependencies": [
+        "RFC-0001",
+        "RFC-0003",
+        "RFC-0004"
+      ],
+      "superseded_by": null,
+      "links": [],
+      "mtime": "1776972649",
+      "content_hash": null
+    },
+    {
+      "number": "0008",
+      "title": "RFC-0008: стратегия drift на основе git commit time",
+      "status": "accepted",
+      "dependencies": [
+        "RFC-0006"
+      ],
+      "superseded_by": null,
+      "links": [],
+      "mtime": "1776973499",
+      "content_hash": "80f0235bbfb2226a9fc4b5d642bdbab9c2fd1c473e3bafa95674d3f8ec3bce0a"
     }
   ]
 }
