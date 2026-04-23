@@ -2,11 +2,18 @@ mod cli;
 mod commands;
 mod rfclib;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
+use clap_complete::generate;
 use cli::{Cli, Commands};
 
 fn main() {
     let cli = Cli::parse();
+
+    if let Commands::Completions { shell } = &cli.command {
+        let mut cmd = Cli::command();
+        generate(*shell, &mut cmd, "rfc-cli", &mut std::io::stdout());
+        return;
+    }
 
     let project_root = match rfclib::project::get_project_root() {
         Ok(root) => root,
@@ -41,6 +48,7 @@ fn main() {
         Commands::Deps { number, reverse } => {
             commands::deps::execute(&project_root, &number, reverse)
         }
+        Commands::Completions { .. } => Ok(()),
         Commands::Doctor { stale_days } => commands::doctor::execute(&project_root, stale_days),
     };
 

@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use clap_complete::Shell;
 
 #[derive(Parser)]
 #[command(name = "rfc-cli", about = "Manage RFC documents")]
@@ -44,7 +45,8 @@ pub enum Commands {
     Set {
         /// RFC number
         number: String,
-        /// Target status
+        /// Target status (one of: draft, review, accepted, implemented, superseded, deprecated)
+        #[arg(value_parser = clap::builder::PossibleValuesParser::new(crate::rfclib::rfc::VALID_STATUSES))]
         status: String,
         /// Superseding RFC (for transition to superseded)
         #[arg(long)]
@@ -84,6 +86,12 @@ pub enum Commands {
         /// Show reverse dependencies (which RFCs depend on this one)
         #[arg(long)]
         reverse: bool,
+    },
+    /// Generate shell completions
+    Completions {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: Shell,
     },
     /// Run project-wide RFC health diagnostics
     Doctor {

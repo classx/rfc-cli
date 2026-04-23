@@ -23,6 +23,13 @@ For convenience, you can copy it to your PATH:
 cp target/release/rfc-cli ~/.local/bin/
 ```
 
+## Shell Completion
+
+Generate and install completion scripts:
+
+- Bash: run `rfc-cli completions bash > /path/to/rfc-cli.bash`, then source it (e.g. `source /path/to/rfc-cli.bash`) or place it in your distro's completion directory (for macOS with Homebrew: `/usr/local/etc/bash_completion.d/`).
+- Zsh: run `rfc-cli completions zsh > /path/to/_rfc-cli`, ensure the directory is in `$fpath`, then run `autoload -Uz compinit && compinit`.
+
 ## Quick Start
 
 ```sh
