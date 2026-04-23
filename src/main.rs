@@ -49,7 +49,9 @@ fn main() {
             commands::deps::execute(&project_root, &number, reverse)
         }
         Commands::Completions { .. } => Ok(()),
-        Commands::Doctor { stale_days } => commands::doctor::execute(&project_root, stale_days),
+        Commands::Doctor { stale_days, drift } => {
+            commands::doctor::execute(&project_root, stale_days, drift)
+        }
     };
 
     if let Err(e) = result {

@@ -140,14 +140,19 @@
     {
       "number": "0008",
       "title": "RFC-0008: стратегия drift на основе git commit time",
-      "status": "accepted",
+      "status": "implemented",
       "dependencies": [
         "RFC-0006"
       ],
       "superseded_by": null,
-      "links": [],
-      "mtime": "1776973499",
-      "content_hash": "80f0235bbfb2226a9fc4b5d642bdbab9c2fd1c473e3bafa95674d3f8ec3bce0a"
+      "links": [
+        "src/cli.rs",
+        "src/main.rs",
+        "src/commands/doctor.rs",
+        "tests/integration_test.rs"
+      ],
+      "mtime": "1776974269",
+      "content_hash": "f12b678f491d089550a31c233dc117df04d35e0de6cfd9f1b25aa247adbc330d"
     }
   ]
 }
