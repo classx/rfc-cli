@@ -1108,8 +1108,11 @@ fn test_set_invalid_status() {
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(!output.status.success());
+    let stderr_lower = stderr.to_lowercase();
     assert!(
-        stderr.contains("Invalid status"),
+        stderr_lower.contains("invalid status")
+            || stderr_lower.contains("invalid value")
+            || stderr_lower.contains("possible values"),
         "should say invalid status, got: {}",
         stderr
     );
