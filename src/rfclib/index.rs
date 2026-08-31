@@ -65,11 +65,30 @@ pub fn compute_content_hash(content: &str) -> String {
 
 /// Refreshes index: compares mtime of files with index entries,
 /// reparses changed ones, adds new ones, removes stale ones.
+/// Persists the index to disk only if any change was detected.
 pub fn refresh_index(project_root: &Path, index: &mut Index) -> Result<(), String> {
+    let dirty = refresh_entries(project_root, index)?;
+    if dirty {
+        save_index(project_root, index)?;
+    }
+    Ok(())
+}
+
+/// Refreshes the in-memory index without ever writing to disk. Read-only.
+pub fn refresh_index_readonly(project_root: &Path, index: &mut Index) -> Result<(), String> {
+    refresh_entries(project_root, index)?;
+    Ok(())
+}
+
+/// Scans RFC files and updates the in-memory index, returning `true` if the
+/// index changed. Never writes to disk.
+fn refresh_entries(project_root: &Path, index: &mut Index) -> Result<bool, String> {
     let rfcs_dir = project_root.join("docs/rfcs");
     if !rfcs_dir.exists() {
-        return Ok(());
+        return Ok(false);
     }
+
+    let mut dirty = false;
 
     // Scan all .md files in docs/rfcs/
     let mut found_numbers: Vec<String> = Vec::new();
@@ -148,19 +167,21 @@ pub fn refresh_index(project_root: &Path, index: &mut Index) -> Result<(), Strin
             // Remove old entry if exists, then add new one
             index.rfcs.retain(|e| e.number != number);
             index.rfcs.push(new_entry);
+            dirty = true;
         }
     }
 
     // Remove entries for which files no longer exist
+    let before = index.rfcs.len();
     index.rfcs.retain(|e| found_numbers.contains(&e.number));
+    if index.rfcs.len() != before {
+        dirty = true;
+    }
 
     // Sort by number
     index.rfcs.sort_by(|a, b| a.number.cmp(&b.number));
 
-    // Save
-    save_index(project_root, index)?;
-
-    Ok(())
+    Ok(dirty)
 }
 
 /// Completely rebuilds the index from scratch by scanning all RFC files.

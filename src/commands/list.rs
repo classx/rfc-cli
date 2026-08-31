@@ -5,7 +5,7 @@ use crate::rfclib::index;
 /// Executes the `list` command: shows table of all RFCs
 pub fn execute(project_root: &Path, status_filter: Option<&str>) -> Result<(), String> {
     let mut idx = index::load_index(project_root)?;
-    index::refresh_index(project_root, &mut idx)?;
+    index::refresh_index_readonly(project_root, &mut idx)?;
 
     let mut rfcs: Vec<&index::IndexEntry> = idx.rfcs.iter().collect();
 
